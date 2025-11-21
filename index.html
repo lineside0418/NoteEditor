@@ -1,0 +1,797 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>NoteEditor</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['Inter', 'sans-serif'] },
+                    colors: {
+                        glass: 'rgba(20, 20, 20, 0.8)',
+                        glassBorder: 'rgba(255, 255, 255, 0.1)',
+                        accent: '#06b6d4', // Cyan
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body { background-color: #09090b; color: #e5e5e5; overflow: hidden; }
+        canvas { display: block; }
+        
+        /* Minimal Scrollbar */
+        ::-webkit-scrollbar { width: 6px; height: 6px; }
+        ::-webkit-scrollbar-track { background: transparent; }
+        ::-webkit-scrollbar-thumb { background: #444; border-radius: 3px; }
+        ::-webkit-scrollbar-thumb:hover { background: #666; }
+
+        .floating-panel {
+            backdrop-filter: blur(12px);
+            -webkit-backdrop-filter: blur(12px);
+            transition: all 0.2s ease;
+        }
+
+        .note-btn { position: relative; overflow: hidden; }
+        .note-btn::after {
+            content: ''; position: absolute; bottom: 0; left: 0; width: 100%; height: 3px;
+            background: currentColor; opacity: 0; transition: opacity 0.2s;
+        }
+        .note-btn.active::after { opacity: 1; }
+        .note-btn.active { background-color: rgba(255,255,255,0.1); }
+
+        /* Custom range input for aesthetics if needed, but standard is fine for now */
+    </style>
+</head>
+<body class="flex flex-col h-screen font-sans selection:bg-cyan-500 selection:text-white">
+
+    <div class="absolute inset-0 z-0" id="canvasContainer">
+        <canvas id="editorCanvas"></canvas>
+    </div>
+
+    <div class="absolute top-0 left-0 right-0 p-4 z-10 flex justify-between items-start pointer-events-none">
+        
+        <div class="floating-panel bg-glass border border-glassBorder rounded-lg p-3 flex flex-col gap-3 shadow-lg pointer-events-auto w-64">
+            <div class="flex items-center justify-between mb-1">
+                <h1 class="font-bold text-cyan-400 tracking-wider text-lg">NoteEditor</h1>
+                <div class="flex gap-1">
+                    <button onclick="document.getElementById('audioLoader').click()" class="text-xs bg-zinc-800 hover:bg-zinc-700 p-2 rounded text-gray-300 transition" title="Load Audio">
+                        <i class="fa-solid fa-music"></i>
+                    </button>
+                    <input type="file" id="audioLoader" accept="audio/*" class="hidden">
+                    
+                    <button id="btnExport" class="text-xs bg-zinc-800 hover:bg-zinc-700 p-2 rounded text-gray-300 transition" title="Save JSON">
+                        <i class="fa-solid fa-download"></i>
+                    </button>
+                    
+                    <button onclick="document.getElementById('jsonLoader').click()" class="text-xs bg-zinc-800 hover:bg-zinc-700 p-2 rounded text-gray-300 transition" title="Load JSON">
+                        <i class="fa-solid fa-folder-open"></i>
+                    </button>
+                    <input type="file" id="jsonLoader" accept=".json" class="hidden">
+                </div>
+            </div>
+            
+            <div class="space-y-2">
+                <input type="text" id="metaTitle" class="w-full bg-transparent border-b border-zinc-700 px-1 py-1 text-sm placeholder-zinc-600 focus:border-cyan-500 outline-none transition" placeholder="Song Title">
+                <input type="text" id="metaArtist" class="w-full bg-transparent border-b border-zinc-700 px-1 py-1 text-sm placeholder-zinc-600 focus:border-cyan-500 outline-none transition" placeholder="Artist">
+                <div class="grid grid-cols-2 gap-2 pt-1">
+                    <div>
+                        <label class="text-[10px] text-gray-500 uppercase">BPM</label>
+                        <input type="number" id="metaBpm" value="120" class="w-full bg-zinc-900/50 border border-zinc-700 rounded px-2 py-1 text-xs focus:border-cyan-500 outline-none">
+                    </div>
+                    <div>
+                        <label class="text-[10px] text-gray-500 uppercase">Offset</label>
+                        <input type="number" id="metaOffset" value="0" class="w-full bg-zinc-900/50 border border-zinc-700 rounded px-2 py-1 text-xs focus:border-cyan-500 outline-none">
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="floating-panel bg-glass border border-glassBorder rounded-full px-6 py-2 shadow-lg flex items-center gap-4 pointer-events-auto">
+            <button id="btnPlay" class="text-cyan-400 hover:text-cyan-300 text-xl transition w-6 flex justify-center">
+                <i class="fa-solid fa-play"></i>
+            </button>
+            
+            <div class="h-8 w-px bg-zinc-700"></div>
+            
+            <div class="flex flex-col items-center w-28 cursor-pointer hover:text-cyan-400 transition" id="timeDisplayArea" title="Click to jump to start">
+                <span id="currentTimeDisplay" class="font-mono text-sm font-bold tracking-tight">00:00.000</span>
+                <span id="currentBeatDisplay" class="font-mono text-[10px] text-gray-400">BEAT 0.00</span>
+            </div>
+
+            <div class="h-8 w-px bg-zinc-700"></div>
+
+            <div class="flex flex-col">
+                <label class="text-[8px] text-gray-500 uppercase text-center">Speed</label>
+                <select id="rateSelect" class="bg-transparent text-xs text-gray-300 outline-none cursor-pointer hover:text-white text-center">
+                    <option value="0.5">x0.5</option>
+                    <option value="0.75">x0.75</option>
+                    <option value="1.0" selected>x1.0</option>
+                    <option value="1.25">x1.25</option>
+                    <option value="1.5">x1.5</option>
+                    <option value="2.0">x2.0</option>
+                </select>
+            </div>
+        </div>
+
+        <div class="floating-panel bg-glass border border-glassBorder rounded-lg p-3 shadow-lg pointer-events-auto flex flex-col items-end gap-2">
+            <div class="flex items-center gap-2">
+                <label class="text-[10px] text-gray-500 uppercase">Snap</label>
+                <select id="snapSelect" class="bg-zinc-900/80 border border-zinc-700 rounded px-2 py-1 text-xs focus:border-cyan-500 outline-none">
+                    <option value="1">1/1</option>
+                    <option value="2">1/2</option>
+                    <option value="4" selected>1/4</option>
+                    <option value="8">1/8</option>
+                    <option value="12">1/12</option>
+                    <option value="16">1/16</option>
+                    <option value="24">1/24</option>
+                    <option value="32">1/32</option>
+                </select>
+            </div>
+            <div class="flex items-center gap-2 mt-1">
+                <label class="text-[10px] text-gray-500 uppercase">Clap</label>
+                <input type="checkbox" id="clapToggle" checked class="accent-cyan-500 h-3 w-3">
+            </div>
+            <div class="text-[10px] text-zinc-500 text-right mt-2 leading-relaxed">
+                <span class="block"><i class="fa-solid fa-arrow-right"></i> Move: Arrow Keys</span>
+                <span class="block"><i class="fa-solid fa-trash"></i> Del: Hover Note</span>
+                <span class="block">Undo: Ctrl+Z</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="absolute bottom-8 left-0 right-0 flex justify-center z-10 pointer-events-none">
+        <div class="floating-panel bg-glass border border-glassBorder rounded-full px-4 py-2 shadow-2xl pointer-events-auto flex gap-1 transform hover:scale-105 transition">
+            <button class="note-btn group flex flex-col items-center justify-center w-14 h-12 rounded hover:bg-white/5 transition text-cyan-400" data-type="tap" onclick="editor.setTool('tap')">
+                <div class="h-3 w-1 bg-cyan-400 rounded-sm mb-1 shadow-[0_0_10px_rgba(34,211,238,0.8)]"></div>
+                <span class="text-[10px] font-bold text-gray-400 group-hover:text-white">TAP</span>
+            </button>
+            
+            <button class="note-btn group flex flex-col items-center justify-center w-14 h-12 rounded hover:bg-white/5 transition text-yellow-400" data-type="touch" onclick="editor.setTool('touch')">
+                <div class="h-3 w-1 bg-yellow-400 rounded-sm mb-1 shadow-[0_0_10px_rgba(250,204,21,0.8)]"></div>
+                <span class="text-[10px] font-bold text-gray-400 group-hover:text-white">TOUCH</span>
+            </button>
+            
+            <button class="note-btn group flex flex-col items-center justify-center w-14 h-12 rounded hover:bg-white/5 transition text-sky-300" data-type="hold" onclick="editor.setTool('hold')">
+                <div class="h-4 w-1 bg-sky-300/50 border border-sky-300 rounded-sm mb-0 shadow-[0_0_10px_rgba(125,211,252,0.5)]"></div>
+                <span class="text-[10px] font-bold text-gray-400 group-hover:text-white">HOLD</span>
+            </button>
+            
+            <button class="note-btn group flex flex-col items-center justify-center w-14 h-12 rounded hover:bg-white/5 transition text-red-500" data-type="reverse" onclick="editor.setTool('reverse')">
+                <div class="h-3 w-1 bg-red-500 rounded-sm mb-1 shadow-[0_0_10px_rgba(239,68,68,0.8)]"></div>
+                <span class="text-[10px] font-bold text-gray-400 group-hover:text-white">REV</span>
+            </button>
+        </div>
+    </div>
+
+<script>
+/**
+ * NoteEditor Core - V5 (Enhanced)
+ * Author: Shiroko
+ */
+
+class Editor {
+    constructor() {
+        this.canvas = document.getElementById('editorCanvas');
+        this.ctx = this.canvas.getContext('2d');
+        this.container = document.getElementById('canvasContainer');
+        
+        // Config
+        this.lanes = 4;
+        this.laneHeight = 70; 
+        this.pixelsPerBeat = 140;
+        this.playbackRate = 1.0;
+        
+        // State
+        this.notes = []; 
+        this.undoStack = [];
+        this.redoStack = [];
+
+        this.audioBuffer = null;
+        this.clapBuffer = null;
+        this.audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        this.sourceNode = null;
+        this.isPlaying = false;
+        this.startTime = 0;
+        this.playbackPosition = 0; // In unscaled seconds (original speed)
+        this.lastClapTime = 0;
+        this.scrollX = 0;
+        
+        // Metadata
+        this.bpm = 120;
+        this.offset = 0;
+        
+        // Interaction
+        this.currentTool = 'tap';
+        this.snap = 4;
+        this.isDragging = false;
+        this.dragStartBeat = 0;
+        this.dragLane = 0;
+        this.hoverBeat = 0;
+        this.hoverLane = -1;
+        
+        this.initAudio();
+        this.resize();
+        this.bindEvents();
+        this.renderLoop();
+    }
+
+    initAudio() {
+        const rate = this.audioCtx.sampleRate;
+        const length = rate * 0.05; 
+        const buffer = this.audioCtx.createBuffer(1, length, rate);
+        const data = buffer.getChannelData(0);
+        for (let i = 0; i < length; i++) {
+            data[i] = (Math.random() * 2 - 1) * Math.pow(1 - i / length, 4); 
+        }
+        this.clapBuffer = buffer;
+    }
+
+    resize() {
+        this.canvas.width = this.container.clientWidth;
+        this.canvas.height = this.container.clientHeight;
+        this.centerY = this.canvas.height / 2;
+        this.draw();
+    }
+
+    bindEvents() {
+        window.addEventListener('resize', () => this.resize());
+        this.canvas.addEventListener('contextmenu', (e) => { e.preventDefault(); return false; });
+
+        // Inputs
+        document.getElementById('audioLoader').addEventListener('change', (e) => this.loadAudio(e));
+        document.getElementById('jsonLoader').addEventListener('change', (e) => this.importJson(e));
+        document.getElementById('btnExport').addEventListener('click', () => this.exportJson());
+        
+        document.getElementById('metaBpm').addEventListener('change', (e) => { this.bpm = parseFloat(e.target.value) || 120; this.draw(); });
+        document.getElementById('metaOffset').addEventListener('change', (e) => { this.offset = parseFloat(e.target.value) || 0; this.draw(); });
+        
+        document.getElementById('snapSelect').addEventListener('change', (e) => { 
+            this.snap = parseInt(e.target.value); 
+            this.draw();
+        });
+        
+        document.getElementById('rateSelect').addEventListener('change', (e) => {
+            this.playbackRate = parseFloat(e.target.value);
+            if(this.isPlaying) {
+                // Restart to apply speed
+                this.stop();
+                this.play();
+            }
+        });
+
+        // Playback
+        document.getElementById('btnPlay').addEventListener('click', () => this.togglePlay());
+        
+        // Seek Bar Click
+        this.canvas.addEventListener('mousedown', (e) => {
+            const rect = this.canvas.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const y = e.clientY - rect.top;
+            
+            // Logic: if click is very high up (top 40px), treat as seek
+            // But we have full canvas now. Let's check if it's above lanes.
+            const laneTop = this.getLaneY(0);
+            if (y < laneTop) {
+                const beat = this.getBeatFromX(x);
+                const time = Math.max(0, this.timeFromBeat(beat));
+                
+                this.playbackPosition = time;
+                this.lastClapTime = time;
+                if(this.isPlaying) {
+                    this.stop();
+                    this.play();
+                } else {
+                    this.draw();
+                    this.updateTimeDisplays();
+                }
+                return; // Don't place note
+            }
+            
+            this.handleMouseDown(e);
+        });
+
+        // Keyboard
+        window.addEventListener('keydown', (e) => {
+            if (['INPUT', 'SELECT'].includes(document.activeElement.tagName)) return;
+            
+            if (e.code === 'Space') { e.preventDefault(); this.togglePlay(); }
+            
+            // Tools
+            if (e.key >= 1 && e.key <= 4) {
+                const types = ['tap', 'touch', 'hold', 'reverse'];
+                this.setTool(types[e.key-1]);
+            }
+            
+            // Undo/Redo
+            if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
+                e.preventDefault();
+                e.shiftKey ? this.redo() : this.undo();
+            }
+            if ((e.ctrlKey || e.metaKey) && e.key === 'y') {
+                e.preventDefault();
+                this.redo();
+            }
+
+            // Arrow Navigation (Step by snap)
+            if (e.key === 'ArrowRight') {
+                e.preventDefault();
+                this.stepBySnap(1);
+            }
+            if (e.key === 'ArrowLeft') {
+                e.preventDefault();
+                this.stepBySnap(-1);
+            }
+            
+            // Delete Hovered
+            if (e.key === 'Delete' || e.key === 'Backspace') {
+                if (this.hoverLane !== -1) {
+                    this.saveState();
+                    // Remove note at hover position (approximate)
+                    this.notes = this.notes.filter(n => 
+                        !(n.lane === this.hoverLane && Math.abs(n.beat - this.hoverBeat) < 0.1)
+                    );
+                    this.draw();
+                }
+            }
+        });
+
+        // Mouse Events
+        this.canvas.addEventListener('wheel', (e) => {
+            e.preventDefault();
+            if (e.ctrlKey) {
+                const oldZoom = this.pixelsPerBeat;
+                this.pixelsPerBeat = Math.max(40, Math.min(600, this.pixelsPerBeat - e.deltaY * 0.1));
+                this.scrollX *= (this.pixelsPerBeat / oldZoom);
+            } else {
+                this.scrollX = Math.max(0, this.scrollX + e.deltaY);
+            }
+            this.draw();
+        }, { passive: false });
+
+        this.canvas.addEventListener('mousemove', (e) => this.handleMouseMove(e));
+        window.addEventListener('mouseup', (e) => this.handleMouseUp(e));
+        this.canvas.addEventListener('mouseleave', () => { this.hoverLane = -1; });
+    }
+
+    // --- Helper Logic ---
+    stepBySnap(direction) {
+        // Stop if playing
+        if(this.isPlaying) this.stop();
+        
+        const currentBeat = this.beatFromTime(this.playbackPosition);
+        const step = 1 / this.snap;
+        let nextBeat = Math.round(currentBeat / step) * step + (direction * step);
+        if(nextBeat < 0) nextBeat = 0;
+        
+        this.playbackPosition = this.timeFromBeat(nextBeat);
+        this.lastClapTime = this.playbackPosition;
+        
+        // Center view
+        const cursorX = this.getXFromBeat(nextBeat);
+        this.scrollX = cursorX - (this.canvas.width * 0.3);
+        
+        this.updateTimeDisplays();
+        this.draw();
+    }
+
+    // --- History ---
+    saveState() {
+        this.undoStack.push(JSON.stringify(this.notes));
+        this.redoStack = [];
+        if (this.undoStack.length > 50) this.undoStack.shift();
+    }
+    undo() {
+        if (this.undoStack.length === 0) return;
+        this.redoStack.push(JSON.stringify(this.notes));
+        this.notes = JSON.parse(this.undoStack.pop());
+        this.draw();
+    }
+    redo() {
+        if (this.redoStack.length === 0) return;
+        this.undoStack.push(JSON.stringify(this.notes));
+        this.notes = JSON.parse(this.redoStack.pop());
+        this.draw();
+    }
+
+    // --- Audio ---
+    loadAudio(e) {
+        const file = e.target.files[0];
+        if(!file) return;
+        const reader = new FileReader();
+        reader.onload = async (ev) => {
+            const arrayBuffer = ev.target.result;
+            this.audioBuffer = await this.audioCtx.decodeAudioData(arrayBuffer);
+            this.draw();
+        };
+        reader.readAsArrayBuffer(file);
+    }
+
+    togglePlay() { this.isPlaying ? this.stop() : this.play(); }
+
+    play() {
+        if (this.isPlaying) return;
+
+        if (this.audioBuffer) {
+            this.sourceNode = this.audioCtx.createBufferSource();
+            this.sourceNode.buffer = this.audioBuffer;
+            this.sourceNode.connect(this.audioCtx.destination);
+            this.sourceNode.playbackRate.value = this.playbackRate; // Speed
+
+            const startOffset = this.playbackPosition;
+            this.startTime = this.audioCtx.currentTime - (startOffset / this.playbackRate);
+            this.sourceNode.start(0, startOffset);
+        } else {
+            this.startTime = this.audioCtx.currentTime - (this.playbackPosition / this.playbackRate);
+        }
+
+        this.lastClapTime = this.playbackPosition;
+        this.isPlaying = true;
+        document.getElementById('btnPlay').innerHTML = '<i class="fa-solid fa-pause"></i>';
+    }
+
+    stop() {
+        if (!this.isPlaying) return;
+        if (this.sourceNode) { this.sourceNode.stop(); this.sourceNode = null; }
+        this.isPlaying = false;
+        // Recalculate position based on elapsed time and speed
+        const elapsed = (this.audioCtx.currentTime - this.startTime) * this.playbackRate;
+        this.playbackPosition = elapsed; 
+        
+        document.getElementById('btnPlay').innerHTML = '<i class="fa-solid fa-play"></i>';
+    }
+
+    triggerClap() {
+        if (!document.getElementById('clapToggle').checked) return;
+        
+        const node = this.audioCtx.createBufferSource();
+        node.buffer = this.clapBuffer;
+        const filter = this.audioCtx.createBiquadFilter();
+        filter.type = 'highpass'; filter.frequency.value = 800;
+        const gain = this.audioCtx.createGain();
+        gain.gain.value = 0.4;
+        node.connect(filter); filter.connect(gain); gain.connect(this.audioCtx.destination);
+        node.start();
+    }
+
+    checkClaps(currentTime) {
+        const playedNotes = this.notes.filter(n => {
+            const time = this.timeFromBeat(n.beat);
+            return time >= this.lastClapTime && time < currentTime;
+        });
+        if (playedNotes.length > 0) this.triggerClap();
+        this.lastClapTime = currentTime;
+    }
+
+    // --- Coordinates ---
+    getLaneY(laneIndex) {
+        const totalHeight = this.lanes * this.laneHeight;
+        const startY = (this.canvas.height - totalHeight) / 2;
+        return startY + laneIndex * this.laneHeight;
+    }
+    getBeatFromX(x) { return (x + this.scrollX) / this.pixelsPerBeat; }
+    getXFromBeat(beat) { return (beat * this.pixelsPerBeat) - this.scrollX; }
+    getLaneFromY(y) {
+        const totalHeight = this.lanes * this.laneHeight;
+        const startY = (this.canvas.height - totalHeight) / 2;
+        if (y < startY || y > startY + totalHeight) return -1;
+        return Math.floor((y - startY) / this.laneHeight);
+    }
+    snapBeat(beat) { return Math.round(beat * this.snap) / this.snap; }
+    beatFromTime(seconds) { return Math.max(0, seconds - (this.offset / 1000)) * (this.bpm / 60); }
+    timeFromBeat(beat) { return (beat * 60 / this.bpm) + (this.offset / 1000); }
+
+    // --- Input Handling ---
+    handleMouseDown(e) {
+        const rect = this.canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        const lane = this.getLaneFromY(y);
+        const beat = this.snapBeat(this.getBeatFromX(x));
+
+        if (lane === -1) return;
+        this.saveState();
+
+        if (e.button === 2) {
+            this.notes = this.notes.filter(n => !(n.lane === lane && Math.abs(n.beat - beat) < 0.01));
+            return;
+        }
+
+        if (this.currentTool === 'hold') {
+            this.isDragging = true;
+            this.dragStartBeat = beat;
+            this.dragLane = lane;
+            this.notes.push({ type: 'hold', lane: lane, beat: beat, length: 0.25, temp: true });
+        } else {
+            this.notes = this.notes.filter(n => !(n.lane === lane && n.beat === beat));
+            this.notes.push({ type: this.currentTool, lane: lane, beat: beat, length: 0 });
+        }
+    }
+
+    handleMouseMove(e) {
+        const rect = this.canvas.getBoundingClientRect();
+        const x = e.clientX - rect.left;
+        const y = e.clientY - rect.top;
+        this.hoverLane = this.getLaneFromY(y);
+        this.hoverBeat = this.snapBeat(this.getBeatFromX(x));
+
+        if (this.isDragging) {
+            const currentBeat = this.snapBeat(this.getBeatFromX(x));
+            const tempNote = this.notes.find(n => n.temp);
+            if (tempNote) {
+                let length = currentBeat - this.dragStartBeat;
+                if (length <= 0) length = 1/16;
+                tempNote.length = length;
+            }
+        }
+    }
+
+    handleMouseUp(e) {
+        if (this.isDragging) {
+            const tempNote = this.notes.find(n => n.temp);
+            if (tempNote) delete tempNote.temp;
+            this.isDragging = false;
+        }
+    }
+
+    setTool(type) {
+        this.currentTool = type;
+        document.querySelectorAll('.note-btn').forEach(b => {
+            if (b.dataset.type === type) b.classList.add('active');
+            else b.classList.remove('active');
+        });
+    }
+
+    // --- Draw ---
+    renderLoop() {
+        if (this.isPlaying) {
+            // Calculate visual time based on wall clock and speed
+            const elapsed = (this.audioCtx.currentTime - this.startTime) * this.playbackRate;
+            this.playbackPosition = elapsed;
+            
+            this.checkClaps(this.playbackPosition);
+
+            const cursorX = this.getXFromBeat(this.beatFromTime(this.playbackPosition));
+            if (cursorX > this.canvas.width * 0.3) {
+                this.scrollX += (cursorX - (this.canvas.width * 0.3));
+            }
+            
+            this.updateTimeDisplays();
+        }
+        this.draw();
+        requestAnimationFrame(() => this.renderLoop());
+    }
+
+    updateTimeDisplays() {
+        const m = Math.floor(this.playbackPosition / 60);
+        const s = Math.floor(this.playbackPosition % 60);
+        const ms = Math.floor((this.playbackPosition % 1) * 1000);
+        document.getElementById('currentTimeDisplay').innerText = `${m}:${s.toString().padStart(2,'0')}.${ms.toString().padStart(3,'0')}`;
+        document.getElementById('currentBeatDisplay').innerText = `BEAT ${this.beatFromTime(this.playbackPosition).toFixed(2)}`;
+    }
+
+    draw() {
+        this.ctx.fillStyle = '#09090b';
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
+
+        this.drawWaveform();
+        this.drawGrid();
+        this.drawGhost();
+        this.drawNotes();
+        this.drawPlayhead();
+    }
+
+    drawWaveform() {
+        if (!this.audioBuffer) return;
+        const data = this.audioBuffer.getChannelData(0);
+        const centerY = this.canvas.height / 2;
+        this.ctx.fillStyle = 'rgba(6, 182, 212, 0.1)'; 
+        
+        // Simple view optimization
+        const startBeat = this.getBeatFromX(0);
+        const endBeat = this.getBeatFromX(this.canvas.width);
+        const startTime = this.timeFromBeat(startBeat);
+        const endTime = this.timeFromBeat(endBeat);
+        
+        // Sample rate / (speed compensation not needed for buffer access)
+        let startIdx = Math.floor(startTime * this.audioBuffer.sampleRate);
+        let endIdx = Math.floor(endTime * this.audioBuffer.sampleRate);
+        if(startIdx < 0) startIdx = 0;
+        
+        // Draw bars
+        const pxStep = 3;
+        // Map screen X to time
+        for (let x = 0; x < this.canvas.width; x += pxStep) {
+            const b = this.getBeatFromX(x);
+            const t = this.timeFromBeat(b);
+            if(t < 0 || t > this.audioBuffer.duration) continue;
+            
+            const idx = Math.floor(t * this.audioBuffer.sampleRate);
+            const val = data[idx] || 0;
+            const h = Math.abs(val) * 400;
+            
+            this.ctx.fillRect(x, centerY - h/2, pxStep - 1, h);
+        }
+    }
+
+    drawGrid() {
+        const startBeat = Math.floor(this.getBeatFromX(0));
+        const endBeat = Math.ceil(this.getBeatFromX(this.canvas.width));
+        const laneStartY = this.getLaneY(0);
+        const totalH = this.lanes * this.laneHeight;
+
+        // Lanes
+        this.ctx.strokeStyle = '#27272a'; 
+        this.ctx.lineWidth = 1;
+        for(let i=0; i<=this.lanes; i++) {
+            const y = laneStartY + i * this.laneHeight;
+            this.ctx.beginPath(); this.ctx.moveTo(0, y); this.ctx.lineTo(this.canvas.width, y); this.ctx.stroke();
+        }
+
+        // Dynamic Grid Density based on Snap
+        // Always draw beats (1/1), then draw subdivisions if snap allows
+        const beatStep = 1; 
+        const subStep = 1 / this.snap; 
+
+        for(let b = startBeat; b <= endBeat; b += subStep) {
+            const x = this.getXFromBeat(b);
+            if (x < -10 || x > this.canvas.width + 10) continue;
+
+            this.ctx.beginPath();
+            this.ctx.moveTo(x, laneStartY);
+            this.ctx.lineTo(x, laneStartY + totalH);
+            
+            // Check if it's a full beat or bar
+            const isBar = Math.abs(b % 4) < 0.001;
+            const isBeat = Math.abs(b % 1) < 0.001;
+
+            if (isBar) {
+                this.ctx.strokeStyle = '#52525b'; // Zinc-600
+                this.ctx.lineWidth = 1.5;
+                // Measure Text
+                this.ctx.fillStyle = '#71717a';
+                this.ctx.font = '10px Inter';
+                this.ctx.fillText((Math.round(b)/4).toString(), x + 4, laneStartY - 8);
+            } else if (isBeat) {
+                this.ctx.strokeStyle = '#3f3f46'; // Zinc-700
+                this.ctx.lineWidth = 1;
+            } else {
+                // Subdivision lines
+                this.ctx.strokeStyle = '#27272a'; // Fainter
+                this.ctx.lineWidth = 0.5;
+            }
+            this.ctx.stroke();
+        }
+    }
+
+    drawGhost() {
+        if (this.hoverLane === -1 || this.isDragging) return;
+        const x = this.getXFromBeat(this.hoverBeat);
+        const y = this.getLaneY(this.hoverLane);
+        const w = 14;
+        const h = this.laneHeight - 8;
+        
+        this.ctx.globalAlpha = 0.3;
+        this.ctx.fillStyle = this.getNoteColor(this.currentTool);
+        this.ctx.fillRect(x - w/2, y + 4, w, h);
+        this.ctx.globalAlpha = 1.0;
+        
+        // Show beat text on cursor
+        this.ctx.fillStyle = '#fff';
+        this.ctx.font = '10px monospace';
+        this.ctx.fillText(this.hoverBeat.toFixed(2), x, y - 2);
+    }
+
+    getNoteColor(type) {
+        switch(type) {
+            case 'tap': return '#22d3ee';
+            case 'touch': return '#facc15';
+            case 'hold': return '#7dd3fc';
+            case 'reverse': return '#ef4444';
+            default: return '#fff';
+        }
+    }
+
+    drawNotes() {
+        const laneStartY = this.getLaneY(0);
+        const noteW = 14;
+
+        // Holds (Background)
+        this.notes.filter(n => n.type === 'hold').forEach(n => {
+            const x = this.getXFromBeat(n.beat);
+            const y = laneStartY + n.lane * this.laneHeight;
+            const len = n.length * this.pixelsPerBeat;
+            if (x + len < 0 || x > this.canvas.width) return;
+
+            const grad = this.ctx.createLinearGradient(x, 0, x+len, 0);
+            grad.addColorStop(0, 'rgba(125, 211, 252, 0.4)');
+            grad.addColorStop(1, 'rgba(125, 211, 252, 0.1)');
+            this.ctx.fillStyle = grad;
+            this.ctx.fillRect(x, y + this.laneHeight/2 - 4, len, 8);
+            this.ctx.strokeStyle = '#7dd3fc';
+            this.ctx.lineWidth = 1;
+            this.ctx.strokeRect(x, y + this.laneHeight/2 - 4, len, 8);
+        });
+
+        // Heads
+        this.notes.forEach(n => {
+            const x = this.getXFromBeat(n.beat);
+            const y = laneStartY + n.lane * this.laneHeight;
+            if (x < -20 || x > this.canvas.width + 20) return;
+
+            const color = this.getNoteColor(n.type);
+            const h = this.laneHeight - 8;
+
+            this.ctx.shadowBlur = 15;
+            this.ctx.shadowColor = color;
+            this.ctx.fillStyle = color;
+            this.ctx.fillRect(x - noteW/2, y + 4, noteW, h);
+            
+            this.ctx.fillStyle = 'rgba(255,255,255,0.5)';
+            this.ctx.fillRect(x - noteW/2, y + 4, noteW/2, h);
+            this.ctx.shadowBlur = 0;
+        });
+    }
+
+    drawPlayhead() {
+        const x = this.getXFromBeat(this.beatFromTime(this.playbackPosition));
+        this.ctx.strokeStyle = '#fff';
+        this.ctx.lineWidth = 2;
+        this.ctx.beginPath(); this.ctx.moveTo(x, 0); this.ctx.lineTo(x, this.canvas.height); this.ctx.stroke();
+        
+        // Triangle handle at top
+        this.ctx.fillStyle = '#fff';
+        this.ctx.beginPath();
+        this.ctx.moveTo(x - 6, 0); this.ctx.lineTo(x + 6, 0); this.ctx.lineTo(x, 12);
+        this.ctx.fill();
+    }
+    
+    exportJson() {
+        const data = {
+            meta: {
+                title: document.getElementById('metaTitle').value,
+                artist: document.getElementById('metaArtist').value,
+                bpm: this.bpm,
+                offset: this.offset
+            },
+            notes: this.notes.sort((a,b) => a.beat - b.beat)
+        };
+        const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url; a.download = 'chart.json'; a.click();
+        URL.revokeObjectURL(url);
+    }
+
+    importJson(e) {
+        const file = e.target.files[0];
+        if (!file) return;
+        const reader = new FileReader();
+        reader.onload = (ev) => {
+            try {
+                this.saveState();
+                const data = JSON.parse(ev.target.result);
+                if (data.meta) {
+                    document.getElementById('metaTitle').value = data.meta.title || '';
+                    document.getElementById('metaArtist').value = data.meta.artist || '';
+                    this.bpm = data.meta.bpm || 120;
+                    this.offset = data.meta.offset || 0;
+                    document.getElementById('metaBpm').value = this.bpm;
+                    document.getElementById('metaOffset').value = this.offset;
+                }
+                if (data.notes) this.notes = data.notes;
+                this.draw();
+            } catch(err) {}
+        };
+        reader.readAsText(file);
+    }
+}
+
+const editor = new Editor();
+</script>
+</body>
+</html>
