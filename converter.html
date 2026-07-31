@@ -1,0 +1,328 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>RICF-1 Format Converter</title>
+<link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined" rel="stylesheet" />
+<style>
+  /* Apple-like, Minimalist, Modern, Glassmorphism UI */
+  :root {
+    --bg-color: #F5F5F7;
+    --card-bg: rgba(255, 255, 255, 0.75);
+    --card-border: rgba(255, 255, 255, 0.4);
+    --text-main: #1D1D1F;
+    --text-sub: #86868B;
+    --accent: #0071E3;
+    --accent-hover: #0077ED;
+    --success: #34C759;
+    --sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", "Hiragino Kaku Gothic ProN", sans-serif;
+  }
+
+  body {
+    background-color: var(--bg-color);
+    color: var(--text-main);
+    font-family: var(--sans);
+    margin: 0;
+    height: 100vh;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    overflow: hidden;
+  }
+
+  .converter-card {
+    background: var(--card-bg);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border: 1px solid var(--card-border);
+    border-radius: 24px;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.08);
+    width: 400px;
+    padding: 40px 30px;
+    text-align: center;
+    transition: transform 0.3s ease, box-shadow 0.3s ease;
+  }
+
+  .converter-card.dragover {
+    transform: scale(1.02);
+    box-shadow: 0 15px 50px rgba(0, 113, 227, 0.2);
+    border-color: rgba(0, 113, 227, 0.5);
+  }
+
+  .icon {
+    font-size: 48px;
+    color: var(--accent);
+    margin-bottom: 16px;
+    transition: color 0.3s ease;
+  }
+
+  .converter-card.dragover .icon {
+    color: var(--accent-hover);
+  }
+
+  .title {
+    font-size: 20px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    margin: 0 0 8px 0;
+  }
+
+  .description {
+    font-size: 14px;
+    color: var(--text-sub);
+    line-height: 1.5;
+    margin: 0 0 24px 0;
+  }
+
+  .upload-btn {
+    display: inline-block;
+    background-color: var(--accent);
+    color: #FFFFFF;
+    font-size: 15px;
+    font-weight: 600;
+    padding: 12px 24px;
+    border-radius: 980px;
+    cursor: pointer;
+    transition: background-color 0.2s ease, transform 0.1s ease;
+  }
+
+  .upload-btn:hover {
+    background-color: var(--accent-hover);
+  }
+
+  .upload-btn:active {
+    transform: scale(0.97);
+  }
+
+  input[type="file"] {
+    display: none;
+  }
+
+  .status-message {
+    margin-top: 20px;
+    font-size: 13px;
+    font-weight: 500;
+    opacity: 0;
+    transform: translateY(10px);
+    transition: opacity 0.4s ease, transform 0.4s ease;
+  }
+
+  .status-message.show {
+    opacity: 1;
+    transform: translateY(0);
+  }
+
+  .status-message.success {
+    color: var(--success);
+  }
+
+  .status-message.error {
+    color: #FF3B30;
+  }
+</style>
+</head>
+<body>
+
+<div class="converter-card" id="dropZone">
+  <span class="material-symbols-outlined icon" id="statusIcon">upload_file</span>
+  <h1 class="title">RICF-1 コンバーター</h1>
+  <p class="description">古いフォーマットのJSONファイルを<br>ドラッグ＆ドロップして変換します。</p>
+  
+  <label class="upload-btn">
+    ファイルを選択
+    <input type="file" id="fileInput" accept="application/json,.json">
+  </label>
+  
+  <div class="status-message" id="statusMessage"></div>
+</div>
+
+<script>
+(function() {
+  "use strict";
+
+  const RESOLUTION = 960; // RICF-1のデフォルト解像度（1拍あたりのTick数）
+
+  const dropZone = document.getElementById('dropZone');
+  const fileInput = document.getElementById('fileInput');
+  const statusMessage = document.getElementById('statusMessage');
+  const statusIcon = document.getElementById('statusIcon');
+
+  // イベントリスナーの登録
+  dropZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    dropZone.classList.add('dragover');
+  });
+
+  dropZone.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+  });
+
+  dropZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    dropZone.classList.remove('dragover');
+    if (e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+      handleFile(e.dataTransfer.files[0]);
+    }
+  });
+
+  fileInput.addEventListener('change', (e) => {
+    if (e.target.files && e.target.files.length > 0) {
+      handleFile(e.target.files[0]);
+    }
+    fileInput.value = ''; // リセット
+  });
+
+  function showMessage(msg, isError = false) {
+    statusMessage.textContent = msg;
+    statusMessage.className = 'status-message show ' + (isError ? 'error' : 'success');
+    statusIcon.textContent = isError ? 'error' : 'check_circle';
+    statusIcon.style.color = isError ? '#FF3B30' : 'var(--success)';
+    
+    setTimeout(() => {
+      statusMessage.classList.remove('show');
+      setTimeout(() => {
+        statusIcon.textContent = 'upload_file';
+        statusIcon.style.color = 'var(--accent)';
+      }, 400);
+    }, 4000);
+  }
+
+  function handleFile(file) {
+    if (!file.name.endsWith('.json')) {
+      showMessage('JSONファイルを選択してください', true);
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const oldData = JSON.parse(e.target.result);
+        const newData = convertToRICF1(oldData);
+        downloadJson(newData, file.name.replace('.json', '_ricf1.json'));
+        showMessage('変換が完了しました！');
+      } catch (err) {
+        showMessage('変換エラー: ' + err.message, true);
+        console.error(err);
+      }
+    };
+    reader.readAsText(file);
+  }
+
+  // 古いJSONからRICF-1形式に変換するメイン関数
+  function convertToRICF1(old) {
+    // メタデータの構築
+    const metadata = {
+      id: old.name || "001",
+      title: old.name || "Unknown Title",
+      artist: "",
+      charter: "",
+      difficulty: {
+        name: "Low",
+        level: 1
+      },
+      audio: {
+        file: "",
+        offset: typeof old.offset === 'number' ? old.offset : 0
+      },
+      jacket: {
+        file: ""
+      },
+      laneCount: typeof old.maxBlock === 'number' ? old.maxBlock : 6,
+      resolution: RESOLUTION
+    };
+
+    // タイミングデータの構築
+    const timing = {
+      bpms: [
+        {
+          tick: 0,
+          bpm: typeof old.BPM === 'number' ? old.BPM : 120.0
+        }
+      ],
+      scrolls: [
+        { tick: 0, speed: 1.0 }
+      ],
+      timeSignatures: [
+        { tick: 0, numerator: 4, denominator: 4 }
+      ],
+      stops: []
+    };
+
+    // ノーツの変換処理
+    let notes = [];
+    if (Array.isArray(old.notes)) {
+      old.notes.forEach(n => {
+        // (num / LPB) * 960 でTickを算出
+        const tick = Math.round((n.num / n.LPB) * RESOLUTION);
+        const lane = n.block;
+        
+        // 旧type=1 は Tap、type=2 は Hold
+        const type = n.type === 2 ? "hold" : "tap";
+        
+        let newNote = {
+          id: 0, // あとで連番を振るため仮置き
+          tick: tick,
+          lane: lane,
+          type: type,
+          size: 1
+        };
+
+        if (type === "hold") {
+          if (Array.isArray(n.notes) && n.notes.length > 0) {
+            const endNote = n.notes[0];
+            const endTick = Math.round((endNote.num / endNote.LPB) * RESOLUTION);
+            newNote.endTick = endTick;
+          } else {
+            // 万が一終点データが無い場合のフェールセーフ (1拍分の長さに)
+            newNote.endTick = tick + RESOLUTION;
+          }
+        }
+
+        notes.push(newNote);
+      });
+    }
+
+    // 仕様に基づくソート処理: tick 昇順 → lane 昇順
+    notes.sort((a, b) => {
+      if (a.tick !== b.tick) return a.tick - b.tick;
+      return a.lane - b.lane;
+    });
+
+    // 仕様に基づくIDの再付与 (ソート後に1から連番)
+    let idCounter = 1;
+    notes.forEach(n => {
+      n.id = idCounter++;
+    });
+
+    return {
+      version: 1,
+      metadata: metadata,
+      timing: timing,
+      notes: notes,
+      events: []
+    };
+  }
+
+  // JSONをダウンロードさせる処理
+  function downloadJson(data, filename) {
+    const jsonStr = JSON.stringify(data, null, 2);
+    const blob = new Blob([jsonStr], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+
+})();
+</script>
+
+</body>
+</html>
