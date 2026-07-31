@@ -380,7 +380,7 @@
   <span>Length: <span class="highlight" id="statLength">-</span> ticks</span>
 </footer>
 
-<!-- Metadata modal -->
+<!-- Metadata modal (不要になったフィールドを削除) -->
 <div class="modal-overlay" id="metaModalOverlay">
   <div class="modal">
     <h2>メタデータ編集</h2>
@@ -390,10 +390,6 @@
       <div class="field-row">
         <label>楽曲ID<input type="text" id="m_id"></label>
         <label>タイトル<input type="text" id="m_title"></label>
-      </div>
-      <div class="field-row">
-        <label>サブタイトル<input type="text" id="m_subtitle"></label>
-        <label>ジャンル<input type="text" id="m_genre"></label>
       </div>
       <div class="field-row">
         <label>アーティスト<input type="text" id="m_artist"></label>
@@ -417,14 +413,6 @@
       </div>
       <div class="field-row">
         <label>ジャケットファイル名<input type="text" id="m_jacketFile"></label>
-      </div>
-    </div>
-
-    <div class="field-group">
-      <h4>プレビュー</h4>
-      <div class="field-row">
-        <label>開始 (ms)<input type="number" id="m_previewStart"></label>
-        <label>長さ (ms)<input type="number" id="m_previewDuration"></label>
       </div>
     </div>
 
@@ -517,6 +505,7 @@
   let rafHandle = null;
   let seekBarDragging = false;
 
+  // 削除されたフィールド (m_subtitle, m_genre, m_previewStart, m_previewDuration) をリストから除外
   const el = {};
   ['fileInput','btnLoad','btnLoad2','btnNew','btnExport','btnMeta','btnAudio','audioInput',
    'btnUndo','btnRedo','snapSelect','themeSelect','zoomIn','zoomOut','zoomLabel','filenameLabel',
@@ -524,8 +513,8 @@
    'inspector','statTick','statBeat','statLane','statCount','statLength','hintBody','hintTitle',
    'transport','btnPlayPause','timeLabel','seekBar','audioFileLabel','audioEl',
    'metaModalOverlay','metaCancel','metaSave',
-   'm_id','m_title','m_subtitle','m_genre','m_artist','m_charter','m_diffName','m_diffLevel',
-   'm_audioFile','m_audioOffset','m_jacketFile','m_previewStart','m_previewDuration','m_laneCount','m_resolution'
+   'm_id','m_title','m_artist','m_charter','m_diffName','m_diffLevel',
+   'm_audioFile','m_audioOffset','m_jacketFile','m_laneCount','m_resolution'
   ].forEach(id=>{ el[id] = document.getElementById(id); });
   
   el.typeButtons = Array.from(document.querySelectorAll('.type-btn'));
@@ -683,24 +672,24 @@
     el.fileInput.value = '';
   }
 
+  // 新しいJSON構造に合わせたデフォルトデータを生成するよ
   function createNewChart(){
     const data = {
       version: 1,
       metadata: {
-        id: 'new_chart', title: '無題の譜面', subtitle: '', artist: '', charter: '',
-        genre: '', difficulty:{name:'BASIC', level:1},
-        audio:{file:'', offset:0, duration:0}, jacket:{file:''},
-        preview:{start:0, duration:10000},
+        id: "001", title: "無題の譜面", artist: "", charter: "",
+        difficulty: { name: "Low", level: 1 },
+        audio: { file: "", offset: 0 },
+        jacket: { file: "" },
         laneCount: 6, resolution: 960
       },
-      timing:{
-        bpms:[{tick:0, bpm:120.0}],
-        scrolls:[{tick:0, speed:1.0}],
-        timeSignatures:[{tick:0, numerator:4, denominator:4}],
-        stops:[]
+      timing: {
+        bpms: [{ tick: 0, bpm: 120.0 }],
+        scrolls: [{ tick: 0, speed: 1.0 }],
+        timeSignatures: [{ tick: 0, numerator: 4, denominator: 4 }],
+        stops: []
       },
-      notes: [], events: [],
-      editor:{ grid:{snap:16, division:16}, camera:{tick:0, zoom:1.0}, bookmarks:[], selection:[] }
+      notes: [], events: []
     };
     loadChart(data, 'new_chart.json');
   }
@@ -710,18 +699,18 @@
     if(!Array.isArray(data.notes)) data.notes = [];
     if(!data.metadata) data.metadata = {};
     if(!data.timing) data.timing = {bpms:[{tick:0,bpm:120}], scrolls:[], timeSignatures:[{tick:0,numerator:4,denominator:4}], stops:[]};
-    if(!data.metadata.audio) data.metadata.audio = {file:'', offset:0, duration:0};
-    if(data.metadata.audio.duration == null) data.metadata.audio.duration = 0;
+    if(!data.metadata.audio) data.metadata.audio = {file:'', offset:0};
     if(!data.metadata.jacket) data.metadata.jacket = {file:''};
-    if(!data.metadata.preview) data.metadata.preview = {start:0, duration:10000};
-    if(!data.metadata.difficulty) data.metadata.difficulty = {name:'', level:0};
+    if(!data.metadata.difficulty) data.metadata.difficulty = {name:'Low', level:1};
 
     chart = data;
     filename = name || 'chart.json';
     laneCount = chart.metadata.laneCount || 6;
     resolution = chart.metadata.resolution || 960;
-    snapN = (chart.editor && chart.editor.grid && chart.editor.grid.snap) ? chart.editor.grid.snap : 16;
+    
+    // エディタ情報はJSONから消えたから、今のUIの値を維持するね
     el.snapSelect.value = String(snapN);
+
     clearSelection();
     history = []; redoStack = [];
     updateHistoryButtons();
@@ -770,18 +759,14 @@
   function snapTick(tick){ const s = snapTicks(); return Math.max(0, Math.round(tick/s)*s); }
   function clampLane(l){ return Math.max(0, Math.min(laneCount-1, l)); }
 
+  // オーディオ要素自体の長さを参照するように変更したよ
   function audioDurationSec(){
-    const stored = chart && chart.metadata && chart.metadata.audio && chart.metadata.audio.duration;
-    if(stored!=null && isFinite(stored) && stored>0){
-      return stored / 1000;
-    }
     if(audio && isFinite(audio.duration) && audio.duration>0){
       return audio.duration;
     }
     return 0;
   }
 
-  // 変更点 1: maxContentTick関数を修正して、音声の長さ(duration)からTickを計算する処理を追加
   function maxContentTick(){
     let m = resolution*4*8; // デフォルトは最低8小節
     
@@ -790,7 +775,7 @@
     (chart.timing.bpms||[]).forEach(b=>m=Math.max(m,b.tick||0));
     (chart.timing.timeSignatures||[]).forEach(t=>m=Math.max(m,t.tick||0));
 
-    // 【追加】音声が読み込まれている場合は、曲の総尺そのものから最大Tickを算出してキャンバスを伸ばす
+    // 音声が読み込まれている場合は、曲の総尺そのものから最大Tickを算出してキャンバスを伸ばす
     const durationSec = audioDurationSec();
     if (durationSec > 0) {
       const audioMaxTick = secondsToTick(durationSec);
@@ -1140,9 +1125,10 @@
   // ---------------------------------------------------------------
   function nextId(){ let m=0; (chart.notes||[]).forEach(n=>{ if(n.id>m) m=n.id; }); return m+1; }
 
+  // flagsは使わなくなったから削除しておいたよ
   function placeNote(type, tick, lane){
     pushHistory();
-    const n = { id: nextId(), tick, lane, type, size:1, flags:[] };
+    const n = { id: nextId(), tick, lane, type, size:1 };
     if(type==='hold'){ n.endTick = tick + snapTicks()*MIN_HOLD_LEN_UNITS; }
     chart.notes.push(n);
     selectOnly(n.id);
@@ -1306,7 +1292,8 @@
     if(drag.mode==='create-hold'){
       const len = Math.max(snapTicks()*MIN_HOLD_LEN_UNITS, drag.currentTick-drag.startTick);
       pushHistory();
-      const n = { id: nextId(), tick:drag.startTick, endTick:drag.startTick+len, lane:drag.lane, type:'hold', size:1, flags:[] };
+      // ここのノーツ作成時もflagsを削除してるよ
+      const n = { id: nextId(), tick:drag.startTick, endTick:drag.startTick+len, lane:drag.lane, type:'hold', size:1 };
       chart.notes.push(n);
       selectOnly(n.id);
       updateNoteCounts(); updateInspector(); updateFooterCounts();
@@ -1400,13 +1387,12 @@
   // ---------------------------------------------------------------
   // Metadata modal
   // ---------------------------------------------------------------
+  // 不要になった入力フィールドのデータバインディングを消してるよ
   function openMetaModal(){
     if(!chart) return;
     const m = chart.metadata;
     el.m_id.value = m.id||'';
     el.m_title.value = m.title||'';
-    el.m_subtitle.value = m.subtitle||'';
-    el.m_genre.value = m.genre||'';
     el.m_artist.value = m.artist||'';
     el.m_charter.value = m.charter||'';
     el.m_diffName.value = (m.difficulty&&m.difficulty.name)||'';
@@ -1414,8 +1400,6 @@
     el.m_audioFile.value = (m.audio&&m.audio.file)||'';
     el.m_audioOffset.value = (m.audio&&m.audio.offset!=null)?m.audio.offset:0;
     el.m_jacketFile.value = (m.jacket&&m.jacket.file)||'';
-    el.m_previewStart.value = (m.preview&&m.preview.start!=null)?m.preview.start:0;
-    el.m_previewDuration.value = (m.preview&&m.preview.duration!=null)?m.preview.duration:10000;
     el.m_laneCount.value = m.laneCount||6;
     el.m_resolution.value = m.resolution||960;
     el.metaModalOverlay.classList.add('open');
@@ -1438,18 +1422,14 @@
 
     chart.metadata.id = el.m_id.value;
     chart.metadata.title = el.m_title.value;
-    chart.metadata.subtitle = el.m_subtitle.value;
-    chart.metadata.genre = el.m_genre.value;
     chart.metadata.artist = el.m_artist.value;
     chart.metadata.charter = el.m_charter.value;
     chart.metadata.difficulty = { name: el.m_diffName.value, level: parseFloat(el.m_diffLevel.value)||0 };
     chart.metadata.audio = {
       file: el.m_audioFile.value,
-      offset: parseFloat(el.m_audioOffset.value)||0,
-      duration: (chart.metadata.audio && chart.metadata.audio.duration) || 0
+      offset: parseFloat(el.m_audioOffset.value)||0
     };
     chart.metadata.jacket = { file: el.m_jacketFile.value };
-    chart.metadata.preview = { start: parseFloat(el.m_previewStart.value)||0, duration: parseFloat(el.m_previewDuration.value)||0 };
     chart.metadata.laneCount = newLaneCount;
     chart.metadata.resolution = newResolution;
 
@@ -1487,10 +1467,7 @@
 
   audio.addEventListener('loadedmetadata', ()=>{
     el.seekBar.max = String(Math.floor(audio.duration*100));
-    if(chart){
-      chart.metadata.audio = chart.metadata.audio || {};
-      chart.metadata.audio.duration = Math.round(audio.duration * 1000);
-    }
+    // ここでJSONにメタデータとして長さを保存するのをやめたよ
     updateTimeLabel();
 
     if(chart){
