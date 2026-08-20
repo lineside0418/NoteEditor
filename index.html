@@ -21,11 +21,17 @@
     --grid-measure: #2A323F;
     --lane-alt: #0E1218;
     --bpm-line: #C9A227;
-    --tap: #4CE0D2;
-    --hold: #8B7FFF;
-    --hold-fill: rgba(139,127,255,0.30);
-    --trace: #FFC857;
-    --swap: #FF5C8A;
+    --tap: #FFFFFF;
+    --hold: #00BFFF;
+    --hold-fill: rgba(0, 191, 255, 0.3);
+    --trace: #808080;
+    --swap: #A020F0;
+    --shift: #FFFF00;
+    --scramble: #FF0000;
+    --shift: #FFFF00;
+    --scramble: #FF0000;
+    --shift: #FFFF00;
+    --scramble: #FF0000;
     --danger: #FF5C5C;
     --playhead: #FF3B5C;
     --select-box: rgba(120,170,255,0.18);
@@ -60,11 +66,11 @@
     --grid-measure: #D1D5DB;
     --lane-alt: #F3F4F6;
     --bpm-line: #D97706;
-    --tap: #0D9488;
-    --hold: #4F46E5;
-    --hold-fill: rgba(79, 70, 229, 0.2);
-    --trace: #D97706;
-    --swap: #DB2777;
+    --tap: #FFFFFF;
+    --hold: #00BFFF;
+    --hold-fill: rgba(0, 191, 255, 0.3);
+    --trace: #808080;
+    --swap: #A020F0;
     --danger: #DC2626;
     --playhead: #DC2626;
     --select-box: rgba(59, 130, 246, 0.15);
@@ -95,11 +101,11 @@
     --grid-measure: #FFFFFF;
     --lane-alt: #111111;
     --bpm-line: #FFFF00;
-    --tap: #00FFFF;
-    --hold: #FF00FF;
-    --hold-fill: rgba(255, 0, 255, 0.4);
-    --trace: #FFFF00;
-    --swap: #FF0000;
+    --tap: #FFFFFF;
+    --hold: #00BFFF;
+    --hold-fill: rgba(0, 191, 255, 0.3);
+    --trace: #808080;
+    --swap: #A020F0;
     --danger: #FF0000;
     --playhead: #FF0000;
     --select-box: rgba(0, 255, 255, 0.3);
@@ -183,6 +189,8 @@
   .type-btn[data-type="hold"].active{border-left-color:var(--hold);}
   .type-btn[data-type="trace"].active{border-left-color:var(--trace);}
   .type-btn[data-type="swap"].active{border-left-color:var(--swap);}
+  .type-btn[data-type="shift"].active{border-left-color:var(--shift);}
+  .type-btn[data-type="scramble"].active{border-left-color:var(--scramble);}
   .mode-btn.active{background:var(--btn-border-hover);border-color:var(--text-faint);color:var(--text);}
   
   .zoom-group{display:flex;align-items:center;gap:6px;font-family:var(--mono);color:var(--text-dim);}
@@ -314,6 +322,8 @@
     <button class="type-btn" data-type="hold"><span class="dot" style="background:var(--hold)"></span>HOLD<kbd>2</kbd></button>
     <button class="type-btn" data-type="trace"><span class="dot" style="background:var(--trace)"></span>TRACE<kbd>3</kbd></button>
     <button class="type-btn" data-type="swap"><span class="dot" style="background:var(--swap)"></span>SWAP<kbd>4</kbd></button>
+    <button class="type-btn" data-type="shift"><span class="dot" style="background:var(--shift)"></span>SHIFT<kbd>5</kbd></button>
+    <button class="type-btn" data-type="scramble"><span class="dot" style="background:var(--scramble)"></span>SCRAMBLE<kbd>6</kbd></button>
     <div class="divider"></div>
     <label style="color:var(--text-dim);font-family:var(--mono);font-size:11.5px;display:flex;align-items:center;gap:6px;">SNAP
       <select id="snapSelect"></select>
@@ -453,6 +463,8 @@
     hold:  { color: getVar('--hold'),  label:'HOLD',  hasEnd:true  },
     trace: { color: getVar('--trace'), label:'TRACE', hasEnd:false },
     swap:  { color: getVar('--swap'),  label:'SWAP',  hasEnd:false },
+    shift:    { color: getVar('--shift'),    label:'SHIFT',    hasEnd:true  },
+    scramble: { color: getVar('--scramble'), label:'SCRAMBLE', hasEnd:false },
   };
   function getVar(name){ return getComputedStyle(document.documentElement).getPropertyValue(name).trim(); }
 
@@ -487,8 +499,9 @@
   // State
   // ---------------------------------------------------------------
   let chart = null;
+  let currentFileHandle = null;
   let filename = 'chart.json';
-  let laneCount = 6;
+  let laneCount = 7;
   let resolution = 960;
   let zoom = 1.0;
   let snapN = 16;
@@ -530,6 +543,8 @@
     TYPE_META.hold.color = getVar('--hold');
     TYPE_META.trace.color = getVar('--trace');
     TYPE_META.swap.color = getVar('--swap');
+    TYPE_META.shift.color = getVar('--shift');
+    TYPE_META.scramble.color = getVar('--scramble');
 
     // type-btnの色を同期
     el.typeButtons.forEach(btn => {
@@ -561,8 +576,8 @@
     el.snapSelect.appendChild(opt);
   });
 
-  el.btnLoad.addEventListener('click', ()=>el.fileInput.click());
-  el.btnLoad2.addEventListener('click', ()=>el.fileInput.click());
+  el.btnLoad.addEventListener('click', openChartFile);
+  el.btnLoad2.addEventListener('click', openChartFile);
   el.fileInput.addEventListener('change', onFileChosen);
   el.btnNew.addEventListener('click', createNewChart);
   el.btnExport.addEventListener('click', exportChart);
@@ -611,6 +626,8 @@
     else if(e.key==='2'){ selectType('hold'); }
     else if(e.key==='3'){ selectType('trace'); }
     else if(e.key==='4'){ selectType('swap'); }
+    else if(e.key==='5'){ selectType('shift'); }
+    else if(e.key==='6'){ selectType('scramble'); }
     else if(e.key==='Escape'){ clearSelection(); draw(); updateInspector(); }
     else if(e.key==='Delete' || e.key==='Backspace'){
       if(selectedIds.size>0){ e.preventDefault(); deleteSelected(); }
@@ -660,6 +677,25 @@
   // ---------------------------------------------------------------
   // File load / new chart
   // ---------------------------------------------------------------
+  
+  async function openChartFile(){
+    if (!window.showOpenFilePicker) {
+      el.fileInput.click();
+      return;
+    }
+    try {
+      const [fileHandle] = await window.showOpenFilePicker({
+        types: [{ description: 'JSON Files', accept: { 'application/json': ['.json'] } }],
+      });
+      const file = await fileHandle.getFile();
+      const text = await file.text();
+      currentFileHandle = fileHandle;
+      loadChart(JSON.parse(text), file.name);
+    } catch(err) {
+      if (err.name !== 'AbortError') alert('ファイルの読み込みに失敗しました: ' + err.message);
+    }
+  }
+
   function onFileChosen(e){
     const file = e.target.files[0];
     if(!file) return;
@@ -674,6 +710,7 @@
 
   // 新しいJSON構造に合わせたデフォルトデータを生成するよ
   function createNewChart(){
+    currentFileHandle = null;
     const data = {
       version: 1,
       metadata: {
@@ -681,7 +718,7 @@
         difficulty: { name: "Low", level: 1 },
         audio: { file: "", offset: 0 },
         jacket: { file: "" },
-        laneCount: 6, resolution: 960
+        laneCount: 7, resolution: 960
       },
       timing: {
         bpms: [{ tick: 0, bpm: 120.0 }],
@@ -742,7 +779,7 @@
       const c = document.createElement('div');
       c.className = 'lane-cell';
       c.style.width = LANE_W+'px';
-      c.textContent = 'LANE '+i;
+      c.textContent = i === 6 ? 'SPACE' : ('LANE '+(i+1));
       el.laneHeader.appendChild(c);
     }
   }
@@ -906,21 +943,24 @@
   function noteColor(type){ return (TYPE_META[type]||{}).color || '#888'; }
 
   function drawNote(n){
-    const x = laneToX(n.lane);
+    const isSpecialLane = n.lane === 6;
+    const x = isSpecialLane ? laneToX(0) : laneToX(n.lane);
+    const drawWidth = isSpecialLane ? LANE_W * 6 : LANE_W;
     const y = tickToY(n.tick);
-    const cx = x + LANE_W/2;
+    const cx = x + drawWidth/2;
     const isSelected = selectedIds.has(n.id);
     const color = noteColor(n.type);
 
-    if(n.type==='hold'){
+    if(n.type==='hold' || n.type==='shift'){
       const y2 = tickToY(n.endTick!=null ? n.endTick : n.tick);
-      ctx.fillStyle = getVar('--hold-fill');
-      ctx.fillRect(x+6, y, LANE_W-12, Math.max(2,y2-y));
+      ctx.fillStyle = n.type==='shift' ? color.replace(')', ', 0.3)').replace('rgb', 'rgba') : getVar('--hold-fill');
+      if(n.type==='shift' && color.startsWith('#')) ctx.fillStyle = color + '4D';
+      ctx.fillRect(x+6, y, drawWidth-12, Math.max(2,y2-y));
       ctx.strokeStyle = color;
       ctx.lineWidth = isSelected? 3:2;
-      ctx.strokeRect(x+6, y, LANE_W-12, Math.max(2,y2-y));
+      ctx.strokeRect(x+6, y, drawWidth-12, Math.max(2,y2-y));
       ctx.fillStyle = color;
-      ctx.fillRect(x+6, y2-3, LANE_W-12, 3);
+      ctx.fillRect(x+6, y2-3, drawWidth-12, 3);
     }
 
     ctx.fillStyle = (n.type==='trace') ? 'rgba(0,0,0,0)' : color;
@@ -930,10 +970,19 @@
     if(n.type==='trace'){
       ctx.beginPath();
       ctx.moveTo(cx, y-NOTE_H/2);
-      ctx.lineTo(cx+LANE_W/2-8, y);
+      ctx.lineTo(cx+drawWidth/2-8, y);
       ctx.lineTo(cx, y+NOTE_H/2);
-      ctx.lineTo(cx-LANE_W/2+8, y);
+      ctx.lineTo(cx-drawWidth/2+8, y);
       ctx.closePath();
+      ctx.stroke();
+    } else if(n.type==='scramble'){
+      ctx.beginPath();
+      ctx.moveTo(cx, Math.round(y)-NOTE_H/2);
+      ctx.lineTo(cx+NOTE_H, Math.round(y)+NOTE_H/2);
+      ctx.lineTo(cx-NOTE_H, Math.round(y)+NOTE_H/2);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(255, 145, 0, 0.25)';
+      ctx.fill();
       ctx.stroke();
     } else if(n.type==='swap'){
       ctx.beginPath();
@@ -942,7 +991,7 @@
       ctx.fill();
       ctx.stroke();
     } else {
-      const rw = LANE_W-16, rh = NOTE_H;
+      const rw = drawWidth-16, rh = NOTE_H;
       roundRect(ctx, cx-rw/2, y-rh/2, rw, rh, 3);
       ctx.fillStyle = color;
       ctx.fill();
@@ -987,12 +1036,12 @@
     drawBpmLines(maxTick);
 
     const notes = chart.notes||[];
-    notes.filter(n=>n.type==='hold').forEach(drawNote);
-    notes.filter(n=>n.type!=='hold').forEach(drawNote);
+    notes.filter(n=>n.type==='hold' || n.type==='shift').forEach(drawNote);
+    notes.filter(n=>n.type!=='hold' && n.type!=='shift').forEach(drawNote);
 
     if(drag && drag.mode==='create-hold'){
       ctx.globalAlpha = 0.6;
-      drawNote({type:'hold', lane:drag.lane, tick:drag.startTick, endTick:drag.currentTick, id:-999});
+      drawNote({type:drag.type || 'hold', lane:drag.lane, tick:drag.startTick, endTick:drag.currentTick, id:-999});
       ctx.globalAlpha = 1;
     }
 
@@ -1012,7 +1061,9 @@
       ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(RULER_W, Math.round(y)+0.5); ctx.lineTo(w,Math.round(y)+0.5); ctx.stroke();
       ctx.fillStyle = getVar('--select-box');
-      ctx.fillRect(laneToX(hoverPos.lane), y-NOTE_H/2-2, LANE_W, NOTE_H+4);
+      const hWidth = hoverPos.lane === 6 ? LANE_W * 6 : LANE_W;
+      const hX = hoverPos.lane === 6 ? laneToX(0) : laneToX(hoverPos.lane);
+      ctx.fillRect(hX, y-NOTE_H/2-2, hWidth, NOTE_H+4);
     }
 
     if(audio.src){
@@ -1042,9 +1093,11 @@
     const notes = chart.notes||[];
     for(let i=notes.length-1;i>=0;i--){
       const n = notes[i];
-      const cx = laneToX(n.lane)+LANE_W/2;
-      if(Math.abs(x-cx) > LANE_W/2-4) continue;
-      if(n.type==='hold'){
+      const isSpecialLane = n.lane === 6;
+      const drawWidth = isSpecialLane ? LANE_W * 6 : LANE_W;
+      const cx = isSpecialLane ? laneToX(0) + drawWidth/2 : laneToX(n.lane) + drawWidth/2;
+      if(Math.abs(x-cx) > drawWidth/2-4) continue;
+      if(n.type==='hold' || n.type==='shift'){
         const y1 = tickToY(n.tick), y2 = tickToY(n.endTick!=null?n.endTick:n.tick);
         if(y>=y1-NOTE_H/2 && y<=y2+NOTE_H/2){
           const nearEnd = Math.abs(y-y2) <= 7;
@@ -1059,9 +1112,12 @@
   }
 
   function noteBounds(n){
-    const x0 = laneToX(n.lane)+6, x1 = laneToX(n.lane)+LANE_W-6;
+    const isSpecialLane = n.lane === 6;
+    const drawWidth = isSpecialLane ? LANE_W * 6 : LANE_W;
+    const x = isSpecialLane ? laneToX(0) : laneToX(n.lane);
+    const x0 = x+6, x1 = x+drawWidth-6;
     let y0,y1;
-    if(n.type==='hold'){ y0=tickToY(n.tick)-NOTE_H/2; y1=tickToY(n.endTick!=null?n.endTick:n.tick)+NOTE_H/2; }
+    if(n.type==='hold' || n.type==='shift'){ y0=tickToY(n.tick)-NOTE_H/2; y1=tickToY(n.endTick!=null?n.endTick:n.tick)+NOTE_H/2; }
     else { y0=tickToY(n.tick)-NOTE_H/2; y1=tickToY(n.tick)+NOTE_H/2; }
     return {x0,x1,y0,y1};
   }
@@ -1127,9 +1183,12 @@
 
   // flagsは使わなくなったから削除しておいたよ
   function placeNote(type, tick, lane){
+    if (type === 'swap' && ![0, 5, 6].includes(lane)) return null;
+    if (lane === 6 && type !== 'swap' && type !== 'scramble') return null;
+    if (type === 'scramble' && lane !== 6) return null;
     pushHistory();
     const n = { id: nextId(), tick, lane, type, size:1 };
-    if(type==='hold'){ n.endTick = tick + snapTicks()*MIN_HOLD_LEN_UNITS; }
+    if(type==='hold' || type==='shift'){ n.endTick = tick + snapTicks()*MIN_HOLD_LEN_UNITS; }
     chart.notes.push(n);
     selectOnly(n.id);
     resizeCanvas(); draw(); updateNoteCounts(); updateInspector(); updateFooterCounts();
@@ -1201,7 +1260,7 @@
       if(hit){
         selectOnly(hit.note.id);
         updateInspector();
-        if(hit.note.type==='hold' && hit.zone==='end'){
+        if((hit.note.type==='hold' || hit.note.type==='shift') && hit.zone==='end'){
           drag = {mode:'resize-hold', note:hit.note, snapshotTaken:false};
         } else {
           beginGroupDrag(x,y,hit.note);
@@ -1211,8 +1270,11 @@
       }
       const lane = xToLane(x);
       const tick = snapTick(yToTick(y));
-      if(selectedType==='hold'){
-        drag = { mode:'create-hold', lane, startTick:tick, currentTick:tick+snapTicks() };
+      if (selectedType === 'swap' && ![0, 5, 6].includes(lane)) return;
+      if (lane === 6 && selectedType !== 'swap' && selectedType !== 'scramble') return;
+      if (selectedType === 'scramble' && lane !== 6) return;
+      if(selectedType==='hold' || selectedType==='shift'){
+        drag = { mode:'create-hold', type: selectedType, lane, startTick:tick, currentTick:tick+snapTicks() };
         draw();
       } else {
         placeNote(selectedType, tick, lane);
@@ -1274,8 +1336,19 @@
           const n = chart.notes.find(n=>n.id===id);
           if(!n) return;
           n.tick = Math.max(0, orig.tick+deltaTick);
-          n.lane = clampLane(orig.lane+deltaLane);
-          if(n.type==='hold' && orig.endTick!=null){
+          let targetLane = clampLane(orig.lane+deltaLane);
+          if (n.type === 'scramble') {
+            targetLane = 6;
+          } else if (n.type === 'swap') {
+            if (![0, 5, 6].includes(targetLane)) {
+              // 0, 5, 6 のうち一番近いものにする
+              targetLane = [0, 5, 6].reduce((prev, curr) => Math.abs(curr - targetLane) < Math.abs(prev - targetLane) ? curr : prev);
+            }
+          } else {
+            if (targetLane === 6) targetLane = 5;
+          }
+          n.lane = targetLane;
+          if((n.type==='hold' || n.type==='shift') && orig.endTick!=null){
             n.endTick = n.tick + (orig.endTick-orig.tick);
           }
         });
@@ -1293,7 +1366,7 @@
       const len = Math.max(snapTicks()*MIN_HOLD_LEN_UNITS, drag.currentTick-drag.startTick);
       pushHistory();
       // ここのノーツ作成時もflagsを削除してるよ
-      const n = { id: nextId(), tick:drag.startTick, endTick:drag.startTick+len, lane:drag.lane, type:'hold', size:1 };
+      const n = { id: nextId(), tick:drag.startTick, endTick:drag.startTick+len, lane:drag.lane, type:drag.type || 'hold', size:1 };
       chart.notes.push(n);
       selectOnly(n.id);
       updateNoteCounts(); updateInspector(); updateFooterCounts();
@@ -1334,7 +1407,7 @@
 
   function updateNoteCounts(){
     const notes = chart.notes||[];
-    const counts = {tap:0,hold:0,trace:0,swap:0};
+    const counts = {tap:0,hold:0,trace:0,swap:0,shift:0,scramble:0};
     notes.forEach(n=>{ if(counts[n.type]!=null) counts[n.type]++; });
     el.noteCounts.innerHTML = Object.keys(TYPE_META).map(t=>`
       <div class="count-item"><span class="sw" style="background:${TYPE_META[t].color}"></span>${TYPE_META[t].label}<span class="n">${counts[t]}</span></div>
@@ -1528,20 +1601,42 @@
   // ---------------------------------------------------------------
   // Export
   // ---------------------------------------------------------------
-  function exportChart(){
+  async function exportChart(){
     if(!chart) return;
     const sorted = sortedNotes();
     const out = Object.assign({}, chart, { notes: sorted });
     const jsonStr = JSON.stringify(out, null, 2);
-    const blob = new Blob([jsonStr], {type:'application/json'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = filename.endsWith('.json') ? filename : filename+'.json';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
+
+    if (!window.showSaveFilePicker) {
+      const blob = new Blob([jsonStr], {type:'application/json'});
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = filename.endsWith('.json') ? filename : filename+'.json';
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      return;
+    }
+
+    try {
+      if (!currentFileHandle) {
+        currentFileHandle = await window.showSaveFilePicker({
+          suggestedName: filename.endsWith('.json') ? filename : filename + '.json',
+          types: [{ description: 'JSON Files', accept: { 'application/json': ['.json'] } }]
+        });
+      }
+      const writable = await currentFileHandle.createWritable();
+      await writable.write(jsonStr);
+      await writable.close();
+      
+      const file = await currentFileHandle.getFile();
+      filename = file.name;
+      el.filenameLabel.textContent = filename;
+    } catch(err) {
+      if (err.name !== 'AbortError') alert('保存に失敗しました: ' + err.message);
+    }
   }
 
 })();
