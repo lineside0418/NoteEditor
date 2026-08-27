@@ -514,6 +514,64 @@
   // State
   // ---------------------------------------------------------------
   let chart = null;
+
+  let isSwapVisualizeMode = false;
+  let laneStateHistory = [];
+
+  function rebuildLaneStates() {
+    laneStateHistory = [];
+    let currentV = [0, 1, 2, 3, 4, 5, 6]; 
+    let currentR = [0, 1, 2, 3, 4, 5, 6];
+    laneStateHistory.push({ tick: -1, V: [...currentV], R: [...currentR] });
+    if (!chart || !chart.notes) return;
+    
+    const mutators = chart.notes.filter(n => n.type === 'swap' || n.type === 'scramble').sort((a,b) => a.tick - b.tick);
+    
+    for (const m of mutators) {
+      let V = [...currentV];
+      let R = [...currentR];
+      
+      if (m.type === 'scramble') {
+        const swap = (i, j) => {
+          const temp = V[i]; V[i] = V[j]; V[j] = temp;
+          R[V[i]] = i; R[V[j]] = j;
+        };
+        swap(0, 5); swap(1, 4); swap(2, 3);
+      } else if (m.type === 'swap') {
+        const swap = (i, j) => {
+          const temp = V[i]; V[i] = V[j]; V[j] = temp;
+          R[V[i]] = i; R[V[j]] = j;
+        };
+        if (m.lane === 0) swap(1, 2);
+        else if (m.lane === 5) swap(3, 4);
+        else if (m.lane === 6) swap(2, 3);
+      }
+      
+      currentV = V; currentR = R;
+      laneStateHistory.push({ tick: m.tick, V, R });
+    }
+  }
+
+  function getLaneMapping(tick) {
+    for (let i = laneStateHistory.length - 1; i >= 0; i--) {
+      if (laneStateHistory[i].tick < tick) return laneStateHistory[i];
+    }
+    return laneStateHistory[0];
+  }
+
+  function getVisualLane(n, targetTick) {
+    if (!isSwapVisualizeMode) return n.lane;
+    if (n.lane === 6) return n.lane;
+    if (n.type === 'hold' || n.type === 'shift') return n.lane;
+    return getLaneMapping(targetTick).V[n.lane];
+  }
+
+  function getInternalLaneForNewNote(visualLane, type, targetTick) {
+    if (!isSwapVisualizeMode) return visualLane;
+    if (visualLane === 6) return visualLane;
+    if (type === 'hold' || type === 'shift') return visualLane;
+    return getLaneMapping(targetTick).R[visualLane];
+  }
   let currentFileHandle = null;
   let filename = 'chart.json';
   let laneCount = 7;
@@ -871,7 +929,7 @@
   }
 
   function maxContentTick(){
-    let m = resolution*4*8; // デフォルトは最低8小節
+    let m = 0;
     
     // 既存のノーツやタイミングイベントから最大Tickを取得
     (chart.notes||[]).forEach(n=>{ m = Math.max(m, n.tick||0, n.endTick||0); });
@@ -885,7 +943,9 @@
       m = Math.max(m, audioMaxTick);
     }
 
-    return m + resolution*4*2; // 最後に2小節分のスクロール余白を足して返す
+    // 音声がなくても常に最後尾からさらに20小節分の余白（キャンバス領域）を確保する
+    // これにより、音声未読み込み状態でもスクロールして無限にノーツを配置し続けられる
+    return m + (resolution * 4 * 20);
   }
   function contentHeight(){ return tickToY(maxContentTick()); }
   function contentWidth(){ return RULER_W + laneCount*LANE_W; }
