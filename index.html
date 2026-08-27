@@ -327,6 +327,9 @@
     <div class="divider"></div>
     <label style="color:var(--text-dim);font-family:var(--mono);font-size:11.5px;display:flex;align-items:center;gap:6px;">SNAP
       <select id="snapSelect"></select>
+      <label style="color:var(--text-dim);font-family:var(--mono);font-size:11.5px;display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:10px;">
+        <input type="checkbox" id="swapVisualizeToggle"> SWAP VISUALIZE
+      </label>
     </label>
     <div class="zoom-group">
       <button id="zoomOut" title="縮小"><span class="material-symbols-outlined">remove</span></button>
@@ -533,7 +536,7 @@
   // 削除されたフィールド (m_subtitle, m_genre, m_previewStart, m_previewDuration) をリストから除外
   const el = {};
   ['fileInput','btnLoad','btnLoad2','btnNew','btnExport','btnMeta','btnAudio','audioInput',
-   'btnUndo','btnRedo','snapSelect','themeSelect','zoomIn','zoomOut','zoomLabel','filenameLabel',
+   'btnUndo','btnRedo','snapSelect','swapVisualizeToggle','themeSelect','zoomIn','zoomOut','zoomLabel','filenameLabel',
    'gridArea','emptyState','laneHeader','scrollWrap','gridCanvas','metaStats','noteCounts',
    'inspector','statTick','statBeat','statLane','statCount','statLength','hintBody','hintTitle',
    'transport','btnPlayPause','timeLabel','seekBar','audioFileLabel','audioEl',
@@ -599,6 +602,11 @@
   el.btnUndo.addEventListener('click', undo);
   el.btnRedo.addEventListener('click', redo);
   el.snapSelect.addEventListener('change', ()=>{ snapN = parseInt(el.snapSelect.value,10); });
+  el.swapVisualizeToggle.addEventListener('change', (e) => {
+    isSwapVisualizeMode = e.target.checked;
+    draw();
+  });
+
   el.zoomIn.addEventListener('click', ()=>setZoom(zoom*1.25));
   el.zoomOut.addEventListener('click', ()=>setZoom(zoom/1.25));
 
@@ -1001,7 +1009,8 @@
   function noteColor(type){ return (TYPE_META[type]||{}).color || '#888'; }
 
   function drawNote(n){
-    const x = laneToX(n.lane);
+    const visualLane = getVisualLane(n, n.tick);
+    const x = laneToX(visualLane);
     const drawWidth = LANE_W;
     const y = tickToY(n.tick);
     const cx = x + drawWidth/2;
@@ -1079,6 +1088,7 @@
   let hoverPos = null;
 
   function draw(){
+    rebuildLaneStates();
     if(!chart) return;
     const w = contentWidth();
     const maxTick = maxContentTick();
@@ -1147,29 +1157,38 @@
   }
 
   function hitTest(x,y){
+    const hitTick = yToTick(y);
     const notes = chart.notes||[];
     for(let i=notes.length-1;i>=0;i--){
       const n = notes[i];
-      const drawWidth = LANE_W;
-      const cx = laneToX(n.lane) + drawWidth/2;
-      if(Math.abs(x-cx) > drawWidth/2-4) continue;
       if(n.type==='hold' || n.type==='shift'){
         const y1 = tickToY(n.tick), y2 = tickToY(n.endTick!=null?n.endTick:n.tick);
         if(y>=y1-NOTE_H/2 && y<=y2+NOTE_H/2){
-          const nearEnd = Math.abs(y-y2) <= 7;
-          return {note:n, zone: nearEnd?'end':'body'};
+          const visLane = getVisualLane(n, hitTick);
+          const cx = laneToX(visLane) + LANE_W/2;
+          if(Math.abs(x-cx) <= LANE_W/2-4){
+            const nearEnd = Math.abs(y-y2) <= 7;
+            return {note:n, zone: nearEnd?'end':'body'};
+          }
         }
       } else {
         const ny = tickToY(n.tick);
-        if(Math.abs(y-ny) <= NOTE_H/2+3) return {note:n, zone:'body'};
+        if(Math.abs(y-ny) <= NOTE_H/2+3){
+          const visLane = getVisualLane(n, n.tick);
+          const cx = laneToX(visLane) + LANE_W/2;
+          if(Math.abs(x-cx) <= LANE_W/2-4){
+            return {note:n, zone:'body'};
+          }
+        }
       }
     }
     return null;
   }
 
   function noteBounds(n){
+    const visLane = getVisualLane(n, n.tick);
     const drawWidth = LANE_W;
-    const x = laneToX(n.lane);
+    const x = laneToX(visLane);
     const x0 = x+6, x1 = x+drawWidth-6;
     let y0,y1;
     if(n.type==='hold' || n.type==='shift'){ y0=tickToY(n.tick)-NOTE_H/2; y1=tickToY(n.endTick!=null?n.endTick:n.tick)+NOTE_H/2; }
@@ -1241,7 +1260,7 @@
   // flagsは使わなくなったから削除しておいたよ
   function placeNote(type, tick, lane){
     if (type === 'swap' && ![0, 5, 6].includes(lane)) return null;
-    if (lane === 6 && type !== 'swap' && type !== 'scramble') return null;
+    if (lane === 6 && !['swap', 'scramble', 'hold', 'shift'].includes(type)) return null;
     if (type === 'scramble' && lane !== 6) return null;
     pushHistory();
     const n = { id: nextId(), tick, lane, type, size:1 };
@@ -1325,10 +1344,11 @@
         draw();
         return;
       }
-      const lane = xToLane(x);
+      const rawLane = xToLane(x);
       const tick = snapTick(yToTick(y));
+      const lane = getInternalLaneForNewNote(rawLane, selectedType, tick);
       if (selectedType === 'swap' && ![0, 5, 6].includes(lane)) return;
-      if (lane === 6 && selectedType !== 'swap' && selectedType !== 'scramble') return;
+      if (lane === 6 && !['swap', 'scramble', 'hold', 'shift'].includes(selectedType)) return;
       if (selectedType === 'scramble' && lane !== 6) return;
       if(selectedType==='hold' || selectedType==='shift'){
         drag = { mode:'create-hold', type: selectedType, lane, startTick:tick, currentTick:tick+snapTicks() };
@@ -1343,11 +1363,11 @@
     const items = new Map();
     selectedIds.forEach(id=>{
       const n = chart.notes.find(n=>n.id===id);
-      if(n) items.set(id, {tick:n.tick, lane:n.lane, endTick:n.endTick});
+      if(n) items.set(id, {tick:n.tick, lane:n.lane, rawLane: getVisualLane(n, n.tick), endTick:n.endTick});
     });
     drag = {
       mode:'group-move', snapshotTaken:false,
-      grabStartTick: grabNote.tick, grabStartLane: grabNote.lane,
+      grabStartTick: grabNote.tick, grabStartLane: grabNote.lane, grabRawLane: getVisualLane(grabNote, grabNote.tick),
       items
     };
   }
@@ -1361,13 +1381,15 @@
     const withinY = y>=0 && y<=rect.height;
 
     if(withinX && withinY){
-      const lane = xToLane(x);
+      const rawLane = xToLane(x);
       const rawTick = yToTick(y);
       const snapped = snapTick(rawTick);
-      hoverPos = {x,y,lane,snappedTick:snapped};
+      const internalLane = getInternalLaneForNewNote(rawLane, selectedType, snapped);
+
+      hoverPos = {x,y,lane:rawLane,snappedTick:snapped};
       el.statTick.textContent = Math.round(rawTick);
       el.statBeat.textContent = (rawTick/resolution).toFixed(2);
-      el.statLane.textContent = lane;
+      el.statLane.textContent = isSwapVisualizeMode ? `${internalLane} (Vis: ${rawLane})` : rawLane;
     } else {
       hoverPos = null;
     }
@@ -1387,18 +1409,23 @@
       } else if(drag.mode==='resize-hold'){
         drag.note.endTick = Math.max(drag.note.tick+snapTicks(), tick);
       } else if(drag.mode==='group-move'){
+        const currentRawLane = xToLane(x);
+        const startRawLane = drag.grabRawLane !== undefined ? drag.grabRawLane : currentRawLane; 
+        const deltaLane = currentRawLane - startRawLane;
         const deltaTick = tick - drag.grabStartTick;
-        const deltaLane = lane - drag.grabStartLane;
+
         drag.items.forEach((orig,id)=>{
           const n = chart.notes.find(n=>n.id===id);
           if(!n) return;
           n.tick = Math.max(0, orig.tick+deltaTick);
-          let targetLane = clampLane(orig.lane+deltaLane);
+          
+          let targetRawLane = clampLane(orig.rawLane + deltaLane);
+          let targetLane = getInternalLaneForNewNote(targetRawLane, n.type, n.tick);
+
           if (n.type === 'scramble') {
             targetLane = 6;
           } else if (n.type === 'swap') {
             if (![0, 5, 6].includes(targetLane)) {
-              // 0, 5, 6 のうち一番近いものにする
               targetLane = [0, 5, 6].reduce((prev, curr) => Math.abs(curr - targetLane) < Math.abs(prev - targetLane) ? curr : prev);
             }
           } else {
