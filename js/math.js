@@ -3,8 +3,26 @@
   function pxPerTick(){ return BASE_PX_PER_TICK * zoom; }
   function tickToY(tick){ return tick * pxPerTick(); }
   function yToTick(y){ return y / pxPerTick(); }
-  function laneToX(lane){ return RULER_W + lane*LANE_W; }
-  function xToLane(x){ const raw = Math.floor((x - RULER_W) / LANE_W); return Math.max(0, Math.min(laneCount-1, raw)); }
+  function laneToX(lane){
+    if (lane === laneCount) return RULER_W + laneCount * LANE_W;
+    if (isCenterSpaceMode) {
+      if (lane < 3) return RULER_W + lane*LANE_W;
+      if (lane === 6) return RULER_W + 3*LANE_W;
+      return RULER_W + (lane + 1)*LANE_W;
+    }
+    return RULER_W + lane*LANE_W;
+  }
+  function xToLane(x){
+    let raw = Math.floor((x - RULER_W) / LANE_W);
+    if(raw < 0) raw = 0;
+    if(raw >= laneCount) raw = laneCount - 1;
+    if (isCenterSpaceMode) {
+      if (raw < 3) return raw;
+      if (raw === 3) return 6;
+      return raw - 1;
+    }
+    return Math.max(0, Math.min(laneCount-1, raw));
+  }
   function snapTicks(){ return resolution*4/snapN; }
   function snapTick(tick){ const s = snapTicks(); return Math.max(0, Math.round(tick/s)*s); }
   function clampLane(l){ return Math.max(0, Math.min(laneCount-1, l)); }

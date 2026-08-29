@@ -195,13 +195,21 @@
     rulerCell.className = 'ruler-cell';
     rulerCell.style.width = RULER_W+'px';
     el.laneHeader.appendChild(rulerCell);
-    for(let i=0;i<laneCount;i++){
+    
+    const visualOrder = [];
+    if (isCenterSpaceMode) {
+      visualOrder.push(0, 1, 2, 6, 3, 4, 5);
+    } else {
+      for(let i=0;i<laneCount;i++) visualOrder.push(i);
+    }
+    
+    visualOrder.forEach(i => {
       const c = document.createElement('div');
       c.className = 'lane-cell';
       c.style.width = LANE_W+'px';
       c.textContent = i === 6 ? 'SPACE' : ('LANE '+(i+1));
       el.laneHeader.appendChild(c);
-    }
+    });
   }
 
   // ---------------------------------------------------------------

@@ -3,6 +3,7 @@
   let chart = null;
 
   let isSwapVisualizeMode = false;
+  let isCenterSpaceMode = false;
   let laneStateHistory = [];
 
   function rebuildLaneStates() {
@@ -60,7 +61,8 @@
     if (type === 'scramble' && lane !== 6) return false;
     return true;
   }
-\n  function getInternalLaneForNewNote(visualLane, type, targetTick) {
+
+  function getInternalLaneForNewNote(visualLane, type, targetTick) {
     if (!isSwapVisualizeMode) return visualLane;
     if (visualLane === 6) return visualLane;
     if (type === 'hold' || type === 'shift') return visualLane;
@@ -92,7 +94,7 @@
   // 削除されたフィールド (m_subtitle, m_genre, m_previewStart, m_previewDuration) をリストから除外
   const el = {};
   ['fileInput','btnLoad','btnLoad2','btnNew','btnExport','btnMeta','btnAudio','audioInput',
-   'btnUndo','btnRedo','snapSelect','swapVisualizeToggle','zoomIn','zoomOut','zoomLabel','filenameLabel',
+   'btnUndo','btnRedo','snapSelect','swapVisualizeToggle','centerSpaceToggle','zoomIn','zoomOut','zoomLabel','filenameLabel',
    'gridArea','emptyState','laneHeader','scrollWrap','gridCanvas','metaStats','noteCounts',
    'inspector','statTick','statBeat','statLane','statCount','statLength','hintBody','hintTitle',
    'transport','btnPlayPause','playbackRateSelect','timeLabel','seekBar','audioFileLabel','audioEl',

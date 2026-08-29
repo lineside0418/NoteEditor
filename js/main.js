@@ -26,6 +26,12 @@
     draw();
   });
 
+  el.centerSpaceToggle.addEventListener('change', (e) => {
+    isCenterSpaceMode = e.target.checked;
+    if (typeof buildLaneHeader === 'function') buildLaneHeader();
+    draw();
+  });
+
   el.zoomIn.addEventListener('click', ()=>setZoom(zoom*1.25));
   el.zoomOut.addEventListener('click', ()=>setZoom(zoom/1.25));
 
