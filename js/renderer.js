@@ -2,7 +2,7 @@
   // ---------------------------------------------------------------
   function ticksPerBeatAt(numerator, denominator){ return resolution * (4/denominator); }
 
-  function drawGridLines(maxTick){
+  function drawGridLines(maxTick, viewTop, viewBottom){
     const ts = (chart.timing.timeSignatures||[{tick:0,numerator:4,denominator:4}]).slice().sort((a,b)=>a.tick-b.tick);
     if(ts.length===0) ts.push({tick:0,numerator:4,denominator:4});
     const w = contentWidth();
@@ -18,6 +18,8 @@
       ctx.lineWidth = 1;
       for(let t=segStart; t<segEnd; t+=beatTicks){
         const y = Math.round(tickToY(t))+0.5;
+        if (y < viewTop) continue;
+        if (y > viewBottom) break;
         ctx.beginPath(); ctx.moveTo(RULER_W,y); ctx.lineTo(w,y); ctx.stroke();
       }
       ctx.strokeStyle = getVar('--grid-measure');
@@ -26,6 +28,8 @@
       let measureNo = 1;
       for(let t=segStart; t<segEnd; t+=measureTicks){
         const y = Math.round(tickToY(t))+0.5;
+        if (y < viewTop) { measureNo++; continue; }
+        if (y > viewBottom) break;
         ctx.lineWidth = 1.4;
         ctx.beginPath(); ctx.moveTo(RULER_W,y); ctx.lineTo(w,y); ctx.stroke();
         ctx.fillText(String(measureNo), 8, y+3);
@@ -43,12 +47,13 @@
     ctx.beginPath(); ctx.moveTo(rx,0); ctx.lineTo(rx, tickToY(maxTick)); ctx.stroke();
   }
 
-  function drawBpmLines(maxTick){
+  function drawBpmLines(maxTick, viewTop, viewBottom){
     const w = contentWidth();
     const bpms = sortedBpms();
     ctx.font = '10px '+getVar('--mono');
     bpms.forEach(b=>{
       const y = tickToY(b.tick);
+      if (y < viewTop || y > viewBottom) return;
       ctx.strokeStyle = getVar('--bpm-line');
       ctx.setLineDash([4,3]); ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(RULER_W,Math.round(y)+0.5); ctx.lineTo(w,Math.round(y)+0.5); ctx.stroke();
@@ -148,8 +153,18 @@
     const w = contentWidth();
     const maxTick = maxContentTick();
     const h = tickToY(maxTick);
+    
+    // Viewport Culling logic
+    const wrap = el.scrollWrap;
+    const scrollTop = wrap ? wrap.scrollTop : 0;
+    const clientH = (wrap && wrap.clientHeight > 0) ? wrap.clientHeight : 800;
+    const viewTop = scrollTop - 200;
+    const viewBottom = scrollTop + clientH + 200;
 
-    ctx.clearRect(0,0,w,Math.max(h,400));
+    const dpr = window.devicePixelRatio || 1;
+    ctx.setTransform(1, 0, 0, 1, 0, 0);
+    ctx.clearRect(0, 0, el.gridCanvas.width, el.gridCanvas.height);
+    ctx.setTransform(dpr, 0, 0, dpr, 0, -scrollTop * dpr);
     for(let i=0;i<laneCount;i++){
       if(i === 6) {
         // Space lane highlight (Distinct color)
@@ -172,8 +187,8 @@
     }
     ctx.stroke();
 
-    drawGridLines(maxTick);
-    drawBpmLines(maxTick);
+    drawGridLines(maxTick, viewTop, viewBottom);
+    drawBpmLines(maxTick, viewTop, viewBottom);
     // Waveform
     if (waveformData && waveformData.length > 0) {
       const startX = laneToX(laneCount) + 30; // 30px margin
@@ -201,6 +216,8 @@
         const tick = tickForAudioTime(time);
         if (tick > maxTick + 1000) break;
         const y = tickToY(tick);
+        if (y < viewTop) continue;
+        if (y > viewBottom) break; // y monotonically increases with time
         
         const minX = startX + waveWidth/2 + (waveformData[i].min * waveWidth/2);
         const maxX = startX + waveWidth/2 + (waveformData[i].max * waveWidth/2);
@@ -212,8 +229,13 @@
     }
 
     const notes = chart.notes||[];
-    notes.filter(n=>n.type==='hold' || n.type==='shift').forEach(drawNote);
-    notes.filter(n=>n.type!=='hold' && n.type!=='shift').forEach(drawNote);
+    const visibleNotes = notes.filter(n => {
+       const y = tickToY(n.tick);
+       const endY = n.endTick != null ? tickToY(n.endTick) : y + NOTE_H;
+       return (endY >= viewTop && y <= viewBottom);
+    });
+    visibleNotes.filter(n=>n.type==='hold' || n.type==='shift').forEach(drawNote);
+    visibleNotes.filter(n=>n.type!=='hold' && n.type!=='shift').forEach(drawNote);
 
     if(drag && drag.mode==='create-hold'){
       ctx.globalAlpha = 0.6;

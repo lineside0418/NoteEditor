@@ -147,6 +147,7 @@
     if(chart){ resizeCanvas(); draw(); }
   }
 
+  el.scrollWrap.addEventListener('scroll', () => { draw(); });
   el.scrollWrap.addEventListener('wheel', (e)=>{
     if(!chart) return;
     if(e.ctrlKey || e.metaKey){

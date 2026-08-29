@@ -1,0 +1,29 @@
+{
+  "name": "ricf1-note-editor",
+  "version": "1.0.0",
+  "description": "RICF-1 Note Editor Native App",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win --x64"
+  },
+  "author": "",
+  "license": "ISC",
+  "build": {
+    "appId": "com.seikocomb.noteeditor",
+    "productName": "NoteEditor",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis"
+    },
+    "files": [
+      "main.js",
+      "../index.html",
+      "../converter.html",
+      "../css/**/*",
+      "../js/**/*"
+    ]
+  }
+}

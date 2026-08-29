@@ -6,14 +6,24 @@
   let isCenterSpaceMode = false;
   let laneStateHistory = [];
 
+  let lastMutatorHash = "";
   function rebuildLaneStates() {
+    if (!chart || !chart.notes) return;
+    
+    const mutators = chart.notes.filter(n => n.type === 'swap' || n.type === 'scramble');
+    let hash = "";
+    for (let i = 0; i < mutators.length; i++) {
+      hash += mutators[i].id + ":" + mutators[i].tick + ",";
+    }
+    if (hash === lastMutatorHash && laneStateHistory.length > 0) return;
+    lastMutatorHash = hash;
+    
     laneStateHistory = [];
     let currentV = [0, 1, 2, 3, 4, 5, 6]; 
     let currentR = [0, 1, 2, 3, 4, 5, 6];
     laneStateHistory.push({ tick: -1, V: [...currentV], R: [...currentR] });
-    if (!chart || !chart.notes) return;
     
-    const mutators = chart.notes.filter(n => n.type === 'swap' || n.type === 'scramble').sort((a,b) => a.tick - b.tick);
+    mutators.sort((a,b) => a.tick - b.tick);
     
     for (const m of mutators) {
       let V = [...currentV];
@@ -41,10 +51,20 @@
   }
 
   function getLaneMapping(tick) {
-    for (let i = laneStateHistory.length - 1; i >= 0; i--) {
-      if (laneStateHistory[i].tick < tick) return laneStateHistory[i];
+    let low = 0;
+    let high = laneStateHistory.length - 1;
+    let res = laneStateHistory[0];
+    
+    while (low <= high) {
+      let mid = (low + high) >> 1;
+      if (laneStateHistory[mid].tick < tick) {
+        res = laneStateHistory[mid];
+        low = mid + 1;
+      } else {
+        high = mid - 1;
+      }
     }
-    return laneStateHistory[0];
+    return res;
   }
 
   function getVisualLane(n, targetTick) {

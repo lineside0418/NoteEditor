@@ -2,7 +2,7 @@
   // ---------------------------------------------------------------
   el.gridCanvas.addEventListener('contextmenu', (e)=>{
     e.preventDefault();
-    const hit = hitTest(e.offsetX, e.offsetY);
+    const hit = hitTest(e.offsetX, e.offsetY + (el.scrollWrap ? el.scrollWrap.scrollTop : 0));
     if(hit) deleteNoteById(hit.note.id);
   });
 
@@ -12,7 +12,7 @@
       commitPaste();
       return;
     }
-    const x=e.offsetX, y=e.offsetY;
+    const x=e.offsetX, y=e.offsetY + (el.scrollWrap ? el.scrollWrap.scrollTop : 0);
 
     if(x < RULER_W){
       if(audio.src){
@@ -91,7 +91,7 @@
     if(!chart) return;
     const rect = el.gridCanvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    const y = e.clientY - rect.top + (el.scrollWrap ? el.scrollWrap.scrollTop : 0);
     const withinX = x>=0 && x<=rect.width;
     const withinY = y>=0 && y<=rect.height;
 

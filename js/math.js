@@ -57,15 +57,37 @@
   function contentHeight(){ return tickToY(maxContentTick()); }
   function contentWidth(){ return RULER_W + laneCount*LANE_W + 150; } // +150 for waveform space
 
+  let dummy = null;
   function resizeCanvas(){
+    if(!chart) return;
+    
+    if(!dummy) {
+      dummy = document.createElement('div');
+      dummy.id = 'scrollDummy';
+      dummy.style.position = 'absolute';
+      dummy.style.width = '1px';
+      dummy.style.top = '0';
+      dummy.style.left = '0';
+      dummy.style.zIndex = '-1';
+      el.scrollWrap.style.position = 'relative';
+      el.scrollWrap.appendChild(dummy);
+      el.gridCanvas.style.position = 'sticky';
+      el.gridCanvas.style.top = '0';
+      el.gridCanvas.style.left = '0';
+      el.gridCanvas.style.zIndex = '1';
+    }
+    
     const w = contentWidth();
     const h = Math.max(400, contentHeight());
+    const viewH = el.scrollWrap.clientHeight || 800;
+    dummy.style.height = h + 'px';
+    
     const dpr = window.devicePixelRatio || 1;
     el.gridCanvas.style.width = w+'px';
-    el.gridCanvas.style.height = h+'px';
+    el.gridCanvas.style.height = viewH+'px';
     el.gridCanvas.width = Math.round(w*dpr);
-    el.gridCanvas.height = Math.round(h*dpr);
-    ctx.setTransform(dpr,0,0,dpr,0,0);
+    el.gridCanvas.height = Math.round(viewH*dpr);
+    // transform is set in draw()
   }
 
   // ---------------------------------------------------------------
