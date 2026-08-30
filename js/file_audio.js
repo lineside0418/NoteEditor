@@ -142,6 +142,8 @@
         data.metadata.laneCount = 7;
         incomingLaneCount = 7;
       }
+      data.metadata.laneCount = 7;
+      incomingLaneCount = 7;
     }
 
     chart = data;
@@ -178,6 +180,7 @@
     el.btnAudio.disabled = false;
     el.emptyState.style.display = 'none';
     el.laneHeader.style.display = 'flex';
+    el.editorMainContainer.style.display = 'flex';
     el.scrollWrap.style.display = 'block';
 
     buildLaneHeader();
@@ -306,11 +309,27 @@
       updateMetaStats();
     }
     el.audioFileLabel.textContent = file.name;
+    el.audioFileLabel.textContent = file.name + " (Loading waveform...)";
     el.transport.classList.remove('disabled');
     el.btnPlayPause.disabled = false;
     el.seekBar.disabled = false;
     el.playbackRateSelect.disabled = false;
     e.target.value = '';
+
+    const reader = new FileReader();
+    reader.onload = async (ev) => {
+      try {
+        if (audioCtx.state === 'suspended') await audioCtx.resume();
+        audioBuffer = await audioCtx.decodeAudioData(ev.target.result);
+        generateWaveformData();
+        el.audioFileLabel.textContent = file.name;
+        if(chart) draw();
+      } catch (err) {
+        console.error('Error decoding audio:', err);
+        el.audioFileLabel.textContent = file.name + " (Waveform failed)";
+      }
+    };
+    reader.readAsArrayBuffer(file);
   }
 
   audio.addEventListener('loadedmetadata', ()=>{
@@ -330,6 +349,17 @@
     updateTimeLabel();
   });
   audio.addEventListener('play', ()=>{ el.btnPlayPause.innerHTML='<span class="material-symbols-outlined">pause</span>'; startRaf(); });
+  let audioContextOffset = 0;
+  audio.addEventListener('play', ()=>{ 
+    audioContextOffset = audioCtx.currentTime - audio.currentTime;
+    el.btnPlayPause.innerHTML='<span class="material-symbols-outlined">pause</span>'; 
+    startRaf(); 
+  });
+  audio.addEventListener('seeked', () => {
+    if (!audio.paused) {
+      audioContextOffset = audioCtx.currentTime - audio.currentTime;
+    }
+  });
   audio.addEventListener('pause', ()=>{ el.btnPlayPause.innerHTML='<span class="material-symbols-outlined">play_arrow</span>'; stopRaf(); draw(); });
   audio.addEventListener('ended', ()=>{ el.btnPlayPause.innerHTML='<span class="material-symbols-outlined">play_arrow</span>'; stopRaf(); draw(); });
 
@@ -372,8 +402,11 @@
       if(chart){
         draw();
         const curTick = tickForAudioTime(audio.currentTime||0);
+        const preciseTime = (!audio.paused) ? (audioCtx.currentTime - audioContextOffset) : (audio.currentTime || 0);
+        const curTick = tickForAudioTime(preciseTime);
         const py = tickToY(curTick);
         scheduleHitSounds(audio.currentTime || 0);
+        scheduleHitSounds(preciseTime);
         const wantTop = py - el.scrollWrap.clientHeight*0.3;
         el.scrollWrap.scrollTop = Math.max(0, wantTop);
       }

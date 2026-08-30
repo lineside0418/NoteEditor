@@ -147,6 +147,72 @@
   // ---------------------------------------------------------------
   let hoverPos = null;
 
+  function drawMinimap(maxTick, viewTop, viewBottom, clientH) {
+    if (!el.minimapCanvas) return;
+    const mCtx = el.minimapCanvas.getContext('2d');
+    const w = el.minimapWrap.clientWidth;
+    const h = el.minimapWrap.clientHeight;
+    
+    // Resize canvas if needed
+    const dpr = window.devicePixelRatio || 1;
+    if (el.minimapCanvas.width !== Math.round(w * dpr) || el.minimapCanvas.height !== Math.round(h * dpr)) {
+      el.minimapCanvas.width = Math.round(w * dpr);
+      el.minimapCanvas.height = Math.round(h * dpr);
+    }
+    
+    mCtx.setTransform(1, 0, 0, 1, 0, 0);
+    mCtx.clearRect(0, 0, el.minimapCanvas.width, el.minimapCanvas.height);
+    mCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    
+    const totalH = tickToY(maxTick);
+    if (totalH <= 0) return;
+    const scaleY = h / totalH;
+    const laneW = w / laneCount;
+    
+    mCtx.fillStyle = getVar('--text-faint') || 'rgba(255,255,255,0.2)';
+    const notes = chart.notes || [];
+    for (let i=0; i<notes.length; i++) {
+      const n = notes[i];
+      const visLane = getVisualLane(n, n.tick);
+      if (visLane < 0 || visLane >= laneCount) continue;
+      const nx = visLane * laneW;
+      const ny = tickToY(n.tick) * scaleY;
+      let nh = 2;
+      if (n.type === 'hold' || n.type === 'shift') {
+        const endY = tickToY(n.endTick != null ? n.endTick : n.tick) * scaleY;
+        nh = Math.max(2, endY - ny);
+      }
+      mCtx.fillRect(nx, ny, laneW - 1, nh);
+    }
+    
+    // Draw viewport rect
+    mCtx.fillStyle = 'rgba(255, 255, 255, 0.1)';
+    mCtx.strokeStyle = 'rgba(255, 255, 255, 0.5)';
+    mCtx.lineWidth = 1;
+    const vy = Math.max(0, viewTop) * scaleY;
+    const vh = clientH * scaleY;
+    mCtx.fillRect(0, vy, w, vh);
+    mCtx.strokeRect(0, vy, w, vh);
+  }
+
+  // Handle minimap click
+  if (el.minimapWrap && !el.minimapWrap.dataset.eventsBound) {
+    el.minimapWrap.dataset.eventsBound = "true";
+    let isDragging = false;
+    const jumpToY = (e) => {
+      const rect = el.minimapWrap.getBoundingClientRect();
+      const my = e.clientY - rect.top;
+      const maxTick = maxContentTick();
+      const scaleY = el.minimapWrap.clientHeight / tickToY(maxTick);
+      const targetScroll = (my / scaleY) - (el.scrollWrap.clientHeight / 2);
+      el.scrollWrap.scrollTop = Math.max(0, targetScroll);
+      draw();
+    };
+    el.minimapWrap.addEventListener('mousedown', (e) => { isDragging = true; jumpToY(e); });
+    window.addEventListener('mousemove', (e) => { if(isDragging) jumpToY(e); });
+    window.addEventListener('mouseup', () => { isDragging = false; });
+  }
+
   function draw(){
     rebuildLaneStates();
     if(!chart) return;
@@ -292,6 +358,7 @@
       ctx.beginPath();
       ctx.moveTo(0,py-6); ctx.lineTo(10,py); ctx.lineTo(0,py+6); ctx.closePath(); ctx.fill();
     }
+    drawMinimap(maxTick, viewTop, viewBottom, clientH);
   }
 
   // ---------------------------------------------------------------
