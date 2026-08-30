@@ -105,6 +105,7 @@
 
   // audio
   let audioObjectUrl = null;
+  let currentAudioTime = 0;
   let rafHandle = null;
   let audioBuffer = null;
   let waveformData = null;
@@ -120,7 +121,6 @@
    'transport','btnPlayPause','playbackRateSelect','timeLabel','seekBar','audioFileLabel','audioEl',
    'metaModalOverlay','metaCancel','metaSave',
    'm_id','m_title','m_artist','m_charter','m_diffName','m_diffLevel',
-   'm_audioFile','m_audioOffset','m_jacketFile','m_laneCount','m_resolution'
    'm_audioFile','m_audioOffset','m_jacketFile','m_laneCount','m_resolution',
    'editorMainContainer','minimapWrap','minimapCanvas'
   ].forEach(id=>{ el[id] = document.getElementById(id); });

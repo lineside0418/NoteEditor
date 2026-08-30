@@ -268,22 +268,19 @@
       ctx.strokeStyle = getVar('--primary') || '#00e5ff';
       ctx.lineWidth = 1;
       
-      const pxPerSec = (resolution / (chart.timing.bpms[0]?.bpm || 120)) * (120/60) * pxPerTick(); // Rough estimate if multiple BPMs, but better to use audioTimeForTick inverted.
-      // Wait, we know 1 data point = 10ms = 0.01s.
-      // For each point i, time = i * 0.01 sec.
-      // tick = tickForAudioTime(time)
-      // y = tickToY(tick)
+      const topTick = Math.max(0, yToTick(viewTop));
+      const bottomTick = Math.max(0, yToTick(viewBottom));
+      const topTime = audioTimeForTick(topTick);
+      const bottomTime = audioTimeForTick(bottomTick);
       
-      // Optimization: Only draw visible portion. But for now draw all or visible.
-      // We can iterate waveformData.
-      const centerY = waveWidth / 2;
-      for (let i = 0; i < waveformData.length; i++) {
+      let startIndex = Math.max(0, Math.floor(topTime / 0.01));
+      let endIndex = Math.min(waveformData.length, Math.ceil(bottomTime / 0.01) + 1);
+      
+      for (let i = startIndex; i < endIndex; i++) {
         const time = i * 0.01;
         const tick = tickForAudioTime(time);
         if (tick > maxTick + 1000) break;
         const y = tickToY(tick);
-        if (y < viewTop) continue;
-        if (y > viewBottom) break; // y monotonically increases with time
         
         const minX = startX + waveWidth/2 + (waveformData[i].min * waveWidth/2);
         const maxX = startX + waveWidth/2 + (waveformData[i].max * waveWidth/2);
@@ -349,14 +346,14 @@
     }
 
     if(audio.src){
-      const curTick = tickForAudioTime(audio.currentTime||0);
-      const py = tickToY(curTick);
+      const curTick = tickForAudioTime(typeof currentAudioTime !== 'undefined' ? currentAudioTime : (audio.currentTime||0));
+      const py = Math.round(tickToY(curTick));
       ctx.strokeStyle = getVar('--playhead');
       ctx.lineWidth = 2;
-      ctx.beginPath(); ctx.moveTo(0, Math.round(py)+0.5); ctx.lineTo(w, Math.round(py)+0.5); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, py + 0.5); ctx.lineTo(w, py + 0.5); ctx.stroke();
       ctx.fillStyle = getVar('--playhead');
       ctx.beginPath();
-      ctx.moveTo(0,py-6); ctx.lineTo(10,py); ctx.lineTo(0,py+6); ctx.closePath(); ctx.fill();
+      ctx.moveTo(0, py - 6); ctx.lineTo(10, py); ctx.lineTo(0, py + 6); ctx.closePath(); ctx.fill();
     }
     drawMinimap(maxTick, viewTop, viewBottom, clientH);
   }

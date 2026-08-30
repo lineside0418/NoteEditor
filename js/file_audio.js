@@ -105,27 +105,6 @@
   }
 
   
-  function askConvertFormat() {
-    return new Promise(resolve => {
-      const overlay = document.getElementById('convertModalOverlay');
-      const acceptBtn = document.getElementById('convertAccept');
-      const cancelBtn = document.getElementById('convertCancel');
-      
-      overlay.classList.add('open');
-      
-      function cleanup() {
-        acceptBtn.removeEventListener('click', onAccept);
-        cancelBtn.removeEventListener('click', onCancel);
-        overlay.classList.remove('open');
-      }
-      function onAccept() { cleanup(); resolve(true); }
-      function onCancel() { cleanup(); resolve(false); }
-      
-      acceptBtn.addEventListener('click', onAccept);
-      cancelBtn.addEventListener('click', onCancel);
-    });
-  }
-
   async function loadChart(data, name){
     if(!data || typeof data !== 'object'){ alert('不正なJSONです'); return; }
     if(!Array.isArray(data.notes)) data.notes = [];
@@ -137,11 +116,6 @@
 
     let incomingLaneCount = data.metadata.laneCount || 6;
     if (incomingLaneCount < 7) {
-      const doConvert = await askConvertFormat();
-      if (doConvert) {
-        data.metadata.laneCount = 7;
-        incomingLaneCount = 7;
-      }
       data.metadata.laneCount = 7;
       incomingLaneCount = 7;
     }
@@ -181,7 +155,6 @@
     el.emptyState.style.display = 'none';
     el.laneHeader.style.display = 'flex';
     el.editorMainContainer.style.display = 'flex';
-    el.scrollWrap.style.display = 'block';
 
     buildLaneHeader();
     resizeCanvas();
@@ -308,7 +281,6 @@
       chart.metadata.audio.file = file.name;
       updateMetaStats();
     }
-    el.audioFileLabel.textContent = file.name;
     el.audioFileLabel.textContent = file.name + " (Loading waveform...)";
     el.transport.classList.remove('disabled');
     el.btnPlayPause.disabled = false;
@@ -348,18 +320,22 @@
     if(!seekBarDragging){ el.seekBar.value = String(Math.floor(audio.currentTime*100)); }
     updateTimeLabel();
   });
-  audio.addEventListener('play', ()=>{ el.btnPlayPause.innerHTML='<span class="material-symbols-outlined">pause</span>'; startRaf(); });
   let audioContextOffset = 0;
+  
+  function syncAudioContext() {
+    if (!audio.paused) {
+      audioContextOffset = audioCtx.currentTime - (audio.currentTime / (audio.playbackRate || 1));
+    }
+  }
+
   audio.addEventListener('play', ()=>{ 
-    audioContextOffset = audioCtx.currentTime - audio.currentTime;
+    syncAudioContext();
     el.btnPlayPause.innerHTML='<span class="material-symbols-outlined">pause</span>'; 
     startRaf(); 
   });
-  audio.addEventListener('seeked', () => {
-    if (!audio.paused) {
-      audioContextOffset = audioCtx.currentTime - audio.currentTime;
-    }
-  });
+  audio.addEventListener('seeked', syncAudioContext);
+  audio.addEventListener('ratechange', syncAudioContext);
+
   audio.addEventListener('pause', ()=>{ el.btnPlayPause.innerHTML='<span class="material-symbols-outlined">play_arrow</span>'; stopRaf(); draw(); });
   audio.addEventListener('ended', ()=>{ el.btnPlayPause.innerHTML='<span class="material-symbols-outlined">play_arrow</span>'; stopRaf(); draw(); });
 
@@ -382,6 +358,7 @@
   el.seekBar.addEventListener('input', ()=>{
     if(!audio.src) return;
     audio.currentTime = parseFloat(el.seekBar.value)/100;
+    currentAudioTime = audio.currentTime;
     updateTimeLabel();
     draw();
   });
@@ -400,15 +377,19 @@
     stopRaf();
     function loop(){
       if(chart){
-        draw();
-        const curTick = tickForAudioTime(audio.currentTime||0);
-        const preciseTime = (!audio.paused) ? (audioCtx.currentTime - audioContextOffset) : (audio.currentTime || 0);
+        let preciseTime = audio.currentTime || 0;
+        if (!audio.paused) {
+          preciseTime = (audioCtx.currentTime - audioContextOffset) * (audio.playbackRate || 1);
+        }
+        currentAudioTime = preciseTime;
+        
         const curTick = tickForAudioTime(preciseTime);
         const py = tickToY(curTick);
-        scheduleHitSounds(audio.currentTime || 0);
-        scheduleHitSounds(preciseTime);
         const wantTop = py - el.scrollWrap.clientHeight*0.3;
         el.scrollWrap.scrollTop = Math.max(0, wantTop);
+        
+        draw();
+        scheduleHitSounds(preciseTime);
       }
       rafHandle = requestAnimationFrame(loop);
     }
