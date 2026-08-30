@@ -4,7 +4,7 @@
   "description": "RICF-1 Note Editor Native App",
   "main": "main.js",
   "scripts": {
-    "start": "electron .",
+    "start": "set ELECTRON_RUN_AS_NODE=&& electron .",
     "build": "electron-builder --win --x64"
   },
   "author": "",
@@ -25,5 +25,9 @@
       "../css/**/*",
       "../js/**/*"
     ]
+  },
+  "devDependencies": {
+    "electron": "^44.0.0",
+    "electron-builder": "^26.15.3"
   }
 }
