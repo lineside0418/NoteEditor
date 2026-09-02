@@ -56,10 +56,15 @@
   // Note mutation
   // ---------------------------------------------------------------
   function nextId(){ let m=0; (chart.notes||[]).forEach(n=>{ if(n.id>m) m=n.id; }); return m+1; }
+  function notePositionKey(tick, lane){ return `${tick}:${lane}`; }
+  function isNoteOccupied(tick, lane, ignoredIds){
+    return (chart.notes||[]).some(n => n.tick === tick && n.lane === lane && !(ignoredIds && ignoredIds.has(n.id)));
+  }
 
   // flagsは使わなくなったから削除しておいたよ
   function placeNote(type, tick, lane){
     if (!isValidPlacement(type, lane)) return null;
+    if (isNoteOccupied(tick, lane)) return null;
     pushHistory();
     const n = { id: nextId(), tick, lane, type, size:1 };
     if(type==='hold' || type==='shift'){ n.endTick = tick + snapTicks()*MIN_HOLD_LEN_UNITS; }
@@ -85,15 +90,30 @@
   }
 
   // ---------------------------------------------------------------
+  function getPasteDestinationLane(item, targetAnchorLane, sourceAnchorLane, flipped) {
+    const sourceLane = item.lane;
+    if (!flipped) {
+      return targetAnchorLane + item.dLane;
+    }
+    const mirroredLane = sourceLane === 6 ? 6 : 5 - sourceLane;
+    const mirroredAnchorLane = sourceAnchorLane === 6 ? 6 : 5 - sourceAnchorLane;
+    return targetAnchorLane + (mirroredLane - mirroredAnchorLane);
+  }
+
   function commitPaste() {
     if(!drag || drag.mode!=='paste' || !drag.items) return;
     pushHistory();
     const newIds = [];
+    const occupied = new Set((chart.notes||[]).map(n => notePositionKey(n.tick, n.lane)));
     drag.items.forEach(item => {
       const t = drag.snapTick + item.dTick;
-      const l = clampLane(drag.lane + item.dLane);
+      const rawLane = getPasteDestinationLane(item, drag.lane, drag.sourceAnchorLane, drag.flipped);
       if(t < 0) return;
+      if (!isValidPlacement(item.type, rawLane)) return;
+      const l = getInternalLaneForNewNote(rawLane, item.type, t);
       if (!isValidPlacement(item.type, l)) return;
+      const positionKey = notePositionKey(t, l);
+      if (occupied.has(positionKey)) return;
       
       const n = { id: nextId(), tick: t, lane: l, type: item.type, size: item.size || 1 };
       if(item.dEndTick != null) {
@@ -103,6 +123,7 @@
       
       chart.notes.push(n);
       newIds.push(n.id);
+      occupied.add(positionKey);
     });
     drag = null;
     clearSelection();
@@ -111,6 +132,36 @@
     updateNoteCounts();
     updateInspector();
     draw();
+  }
+
+  function runSwapSimulator() {
+    if (!chart || !Array.isArray(chart.notes)) return;
+    rebuildLaneStates();
+    const targets = chart.notes.filter(isSwapSimulationTarget);
+    if (targets.length === 0) {
+      alert('変換できる通常ノーツがありません。');
+      return;
+    }
+    const message = `${targets.length} 件の通常ノーツを、SWAP / SCRAMBLE適用後も現在と同じ見た目になる元レーン配置へ変換します。\n\nこの操作はUndoで元に戻せます。実行しますか？`;
+    if (!confirm(message)) return;
+
+    pushHistory();
+    let changed = 0;
+    targets.forEach(n => {
+      const originalLane = n.lane;
+      const mappedLane = getLaneMapping(n.tick).R[originalLane];
+      if (mappedLane !== originalLane) {
+        n.lane = mappedLane;
+        changed++;
+      }
+    });
+
+    rebuildLaneStates();
+    updateNoteCounts();
+    updateInspector();
+    resizeCanvas();
+    draw();
+    alert(`${changed} 件のノーツを変換しました。`);
   }
 
   function mirrorSelected() {

@@ -9,11 +9,7 @@ const onAudioChosenOld = `function onAudioChosen(e){
     if(audioObjectUrl) URL.revokeObjectURL(audioObjectUrl);
     audioObjectUrl = URL.createObjectURL(file);
     audio.src = audioObjectUrl;
-    if(chart){
-      chart.metadata.audio = chart.metadata.audio || {};
-      chart.metadata.audio.file = file.name;
-      updateMetaStats();
-    }
+    if(chart) updateMetaStats();
     el.audioFileLabel.textContent = file.name;
     el.transport.classList.remove('disabled');
     el.btnPlayPause.disabled = false;
@@ -28,11 +24,7 @@ const onAudioChosenNew = `function onAudioChosen(e){
     if(audioObjectUrl) URL.revokeObjectURL(audioObjectUrl);
     audioObjectUrl = URL.createObjectURL(file);
     audio.src = audioObjectUrl;
-    if(chart){
-      chart.metadata.audio = chart.metadata.audio || {};
-      chart.metadata.audio.file = file.name;
-      updateMetaStats();
-    }
+    if(chart) updateMetaStats();
     el.audioFileLabel.textContent = file.name + " (Loading waveform...)";
     el.transport.classList.remove('disabled');
     el.btnPlayPause.disabled = false;
@@ -195,5 +187,4 @@ renderer = renderer.replace(drawEndOld, drawEndNew);
 
 fs.writeFileSync('js/renderer.js', renderer);
 console.log('renderer.js patched');
-
 

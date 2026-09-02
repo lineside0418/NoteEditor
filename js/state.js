@@ -13,7 +13,7 @@
     const mutators = chart.notes.filter(n => n.type === 'swap' || n.type === 'scramble');
     let hash = "";
     for (let i = 0; i < mutators.length; i++) {
-      hash += mutators[i].id + ":" + mutators[i].tick + ",";
+      hash += mutators[i].id + ":" + mutators[i].type + ":" + mutators[i].tick + ":" + mutators[i].lane + ",";
     }
     if (hash === lastMutatorHash && laneStateHistory.length > 0) return;
     lastMutatorHash = hash;
@@ -23,7 +23,7 @@
     let currentR = [0, 1, 2, 3, 4, 5, 6];
     laneStateHistory.push({ tick: -1, V: [...currentV], R: [...currentR] });
     
-    mutators.sort((a,b) => a.tick - b.tick);
+    mutators.sort((a,b) => a.tick - b.tick || a.id - b.id);
     
     for (const m of mutators) {
       let V = [...currentV];
@@ -69,24 +69,32 @@
 
   function getVisualLane(n, targetTick) {
     if (!isSwapVisualizeMode) return n.lane;
-    if (n.lane === 6) return n.lane;
-    if (n.type === 'hold' || n.type === 'shift') return n.lane;
+    if (!isSwapVisualizedNote(n)) return n.lane;
     return getLaneMapping(targetTick).V[n.lane];
   }
 
   function isValidPlacement(type, lane) {
     if (lane < 0 || lane >= laneCount) return false;
     if (type === 'swap' && ![0, 5, 6].includes(lane)) return false;
-    if (lane === 6 && !['swap', 'scramble', 'hold', 'shift'].includes(type)) return false;
+    if (lane === 6 && !['swap', 'hold', 'scramble'].includes(type)) return false;
     if (type === 'scramble' && lane !== 6) return false;
     return true;
   }
 
   function getInternalLaneForNewNote(visualLane, type, targetTick) {
     if (!isSwapVisualizeMode) return visualLane;
-    if (visualLane === 6) return visualLane;
-    if (type === 'hold' || type === 'shift') return visualLane;
+    if (!isSwapVisualizedNote({ type, lane: visualLane })) return visualLane;
     return getLaneMapping(targetTick).R[visualLane];
+  }
+
+  // Hold / Shift notes are fixed in the existing visualization model. Mutator
+  // notes remain visible through swaps, but must never be rewritten by the
+  // simulator because their lanes define the mapping itself.
+  function isSwapVisualizedNote(n) {
+    return n.lane >= 0 && n.lane <= 5 && n.type !== 'hold' && n.type !== 'shift';
+  }
+  function isSwapSimulationTarget(n) {
+    return isSwapVisualizedNote(n) && n.type !== 'swap' && n.type !== 'scramble';
   }
   let currentFileHandle = null;
   let filename = 'chart.json';
@@ -115,13 +123,13 @@
   // 削除されたフィールド (m_subtitle, m_genre, m_previewStart, m_previewDuration) をリストから除外
   const el = {};
   ['fileInput','btnLoad','btnLoad2','btnNew','btnExport','btnMeta','btnAudio','audioInput',
-   'btnUndo','btnRedo','snapSelect','swapVisualizeToggle','centerSpaceToggle','zoomIn','zoomOut','zoomLabel','filenameLabel',
+   'btnUndo','btnRedo','snapSelect','btnSettings','swapVisualizeToggle','centerSpaceToggle','zoomIn','zoomOut','zoomLabel','filenameLabel',
    'gridArea','emptyState','laneHeader','scrollWrap','gridCanvas','metaStats','noteCounts',
    'inspector','statTick','statBeat','statLane','statCount','statLength','hintBody','hintTitle',
    'transport','btnPlayPause','playbackRateSelect','timeLabel','seekBar','audioFileLabel','audioEl',
-   'metaModalOverlay','metaCancel','metaSave',
+   'metaModalOverlay','metaCancel','metaSave','settingsModalOverlay','settingsClose','btnSwapSimulator',
    'm_id','m_title','m_artist','m_charter','m_diffName','m_diffLevel',
-   'm_audioFile','m_audioOffset','m_jacketFile','m_laneCount','m_resolution',
+   'm_bpm','m_timeSigNumerator','m_timeSigDenominator','m_audioOffset','m_resolution',
    'editorMainContainer','minimapWrap','minimapCanvas'
   ].forEach(id=>{ el[id] = document.getElementById(id); });
   

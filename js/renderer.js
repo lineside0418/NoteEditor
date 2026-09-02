@@ -306,22 +306,6 @@
       ctx.globalAlpha = 1;
     }
 
-    if(drag && drag.mode==='paste' && drag.items){
-      ctx.globalAlpha = 0.5;
-      drag.items.forEach(item => {
-        const t = drag.snapTick + item.dTick;
-        const l = drag.lane + item.dLane;
-        if(t >= 0 && isValidPlacement(item.type, l)) {
-          const fakeNote = { type: item.type, lane: l, tick: t, size: item.size || 1 };
-          if (item.dEndTick != null) {
-            fakeNote.endTick = drag.snapTick + item.dEndTick;
-          }
-          drawNote(fakeNote);
-        }
-      });
-      ctx.globalAlpha = 1.0;
-    }
-
     if(drag && drag.mode==='rect-select'){
       const x0=Math.min(drag.x0,drag.x1), x1=Math.max(drag.x0,drag.x1);
       const y0=Math.min(drag.y0,drag.y1), y1=Math.max(drag.y0,drag.y1);
@@ -354,6 +338,24 @@
       ctx.fillStyle = getVar('--playhead');
       ctx.beginPath();
       ctx.moveTo(0, py - 6); ctx.lineTo(10, py); ctx.lineTo(0, py + 6); ctx.closePath(); ctx.fill();
+    }
+
+    // Draw the paste preview after the waveform and playhead so audio
+    // rendering cannot obscure it.
+    if(drag && drag.mode==='paste' && drag.items){
+      ctx.save();
+      ctx.globalAlpha = 0.5;
+      drag.items.forEach(item => {
+        const t = drag.snapTick + item.dTick;
+        const rawLane = getPasteDestinationLane(item, drag.lane, drag.sourceAnchorLane, drag.flipped);
+        if(t < 0 || !isValidPlacement(item.type, rawLane)) return;
+        const lane = getInternalLaneForNewNote(rawLane, item.type, t);
+        if(!isValidPlacement(item.type, lane)) return;
+        const fakeNote = { type: item.type, lane, tick: t, size: item.size || 1 };
+        if (item.dEndTick != null) fakeNote.endTick = drag.snapTick + item.dEndTick;
+        drawNote(fakeNote);
+      });
+      ctx.restore();
     }
     drawMinimap(maxTick, viewTop, viewBottom, clientH);
   }

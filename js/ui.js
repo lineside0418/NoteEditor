@@ -11,7 +11,7 @@
       <div class="stat-row"><span class="k">レーン数</span><span class="v">${laneCount}</span></div>
       <div class="stat-row"><span class="k">解像度</span><span class="v">${resolution}</span></div>
       <div class="stat-row"><span class="k">BPM</span><span class="v">${escapeHtml(bpmRange)}</span></div>
-      <div class="stat-row"><span class="k">音声ファイル</span><span class="v">${escapeHtml((m.audio&&m.audio.file)||'-')}</span></div>
+      <div class="stat-row"><span class="k">音声オフセット</span><span class="v">${(m.audio&&m.audio.offset)!=null ? m.audio.offset+' ms' : '0 ms'}</span></div>
     `;
   }
 
@@ -57,7 +57,7 @@
         <div class="stat-row"><span class="k">Tick</span><span class="v">${n.tick}</span></div>
         <div class="stat-row"><span class="k">Beat</span><span class="v">${(n.tick/resolution).toFixed(2)}</span></div>
         <div class="stat-row"><span class="k">Lane</span><span class="v">${n.lane}</span></div>
-        ${n.type==='hold' ? `<div class="stat-row"><span class="k">EndTick</span><span class="v">${n.endTick}</span></div>
+        ${n.type==='hold' || n.type==='shift' ? `<div class="stat-row"><span class="k">EndTick</span><span class="v">${n.endTick}</span></div>
         <div class="stat-row"><span class="k">長さ</span><span class="v">${n.endTick-n.tick} tick</span></div>` : ''}
         <button class="del-btn" id="inspDelete">このノーツを削除</button>
       </div>

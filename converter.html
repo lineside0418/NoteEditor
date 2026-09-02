@@ -306,14 +306,8 @@
           name: old.meta.version || "Low",
           level: 1
         },
-        audio: {
-          file: old.meta.background ? old.meta.background.replace(/\.[^/.]+$/, "") + ".mp3" : "",
-          offset: 0
-        },
-        jacket: {
-          file: old.meta.background || ""
-        },
-        laneCount: (old.meta.mode_ext && old.meta.mode_ext.column) ? old.meta.mode_ext.column : 7,
+        audio: { offset: 0 },
+        laneCount: 7,
         resolution: RESOLUTION
       };
 
@@ -378,14 +372,8 @@
           name: "Low",
           level: 1
         },
-        audio: {
-          file: "",
-          offset: typeof old.offset === 'number' ? old.offset : 0
-        },
-        jacket: {
-          file: ""
-        },
-        laneCount: typeof old.maxBlock === 'number' ? old.maxBlock : 6,
+        audio: { offset: typeof old.offset === 'number' ? old.offset : 0 },
+        laneCount: 7,
         resolution: RESOLUTION
       };
 

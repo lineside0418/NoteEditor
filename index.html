@@ -22,6 +22,7 @@
     <button id="btnMeta" title="メタデータ編集" disabled><span class="material-symbols-outlined">info</span>メタ</button>
     <button id="btnAudio" title="音声読み込み" disabled><span class="material-symbols-outlined">audio_file</span>音声</button>
     <input type="file" id="audioInput" accept="audio/*">
+    <button id="btnSettings" title="表示・Swap設定"><span class="material-symbols-outlined">settings</span>設定</button>
     <div class="divider"></div>
     <button id="btnUndo" title="元に戻す" disabled><span class="material-symbols-outlined">undo</span></button>
     <button id="btnRedo" title="やり直し" disabled><span class="material-symbols-outlined">redo</span></button>
@@ -43,13 +44,6 @@
     <div class="divider"></div>
     <label style="color:var(--text-dim);font-family:var(--mono);font-size:11.5px;display:flex;align-items:center;gap:6px;">SNAP
       <select id="snapSelect"></select>
-
-      <label style="color:var(--text-dim);font-family:var(--mono);font-size:11.5px;display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:10px;">
-        <input type="checkbox" id="swapVisualizeToggle"> SWAP VISUALIZE
-      </label>
-      <label style="color:var(--text-dim);font-family:var(--mono);font-size:11.5px;display:flex;align-items:center;gap:6px;cursor:pointer;margin-left:10px;">
-        <input type="checkbox" id="centerSpaceToggle"> CENTER SPACE
-      </label>
     </label>
     <div class="zoom-group">
       <button id="zoomOut" title="縮小"><span class="material-symbols-outlined">remove</span></button>
@@ -152,20 +146,24 @@
     </div>
 
     <div class="field-group">
-      <h4>音声 / ジャケット</h4>
+      <h4>タイミング（Tick 0）</h4>
       <div class="field-row">
-        <label>音声ファイル名<input type="text" id="m_audioFile"></label>
-        <label>オフセット (ms)<input type="number" id="m_audioOffset"></label>
+        <label>BPM<input type="number" id="m_bpm" min="0.001" step="any"></label>
+        <label>拍子・分子<input type="number" id="m_timeSigNumerator" min="1" step="1"></label>
+        <label>拍子・分母<input type="number" id="m_timeSigDenominator" min="1" step="1"></label>
       </div>
+    </div>
+
+    <div class="field-group">
+      <h4>音声</h4>
       <div class="field-row">
-        <label>ジャケットファイル名<input type="text" id="m_jacketFile"></label>
+        <label>オフセット (ms)<input type="number" id="m_audioOffset"></label>
       </div>
     </div>
 
     <div class="field-group">
       <h4>構成</h4>
       <div class="field-row">
-        <label>レーン数<input type="number" id="m_laneCount"></label>
         <label>解像度 (Tick/拍)<input type="number" id="m_resolution"></label>
       </div>
     </div>
@@ -173,6 +171,34 @@
     <div class="actions">
       <button id="metaCancel">キャンセル</button>
       <button id="metaSave" class="primary">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- Display / Swap settings modal -->
+<div class="modal-overlay" id="settingsModalOverlay">
+  <div class="modal settings-modal" role="dialog" aria-modal="true" aria-labelledby="settingsModalTitle">
+    <h2 id="settingsModalTitle">表示・SWAP設定</h2>
+    <div class="field-group">
+      <h4>表示</h4>
+      <label class="toggle-row">
+        <input type="checkbox" id="swapVisualizeToggle">
+        <span>SWAP VISUALIZE</span>
+        <small>SWAP / SCRAMBLE後のレーン位置でノーツを表示・配置します。</small>
+      </label>
+      <label class="toggle-row">
+        <input type="checkbox" id="centerSpaceToggle">
+        <span>CENTER SPACE</span>
+        <small>SPACEレーンを中央に表示します。</small>
+      </label>
+    </div>
+    <div class="field-group">
+      <h4>譜面データ</h4>
+      <p class="modal-help">SWAP適用後の見た目で作成してしまった譜面を、ゲームで同じ見た目になる元レーン配置へ変換します。</p>
+      <button id="btnSwapSimulator" class="danger-outline"><span class="material-symbols-outlined">swap_horiz</span>SWAP SIMULATORを実行</button>
+    </div>
+    <div class="actions">
+      <button id="settingsClose" class="primary">閉じる</button>
     </div>
   </div>
 </div>

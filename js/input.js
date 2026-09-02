@@ -62,9 +62,8 @@
       const rawLane = xToLane(x);
       const tick = snapTick(yToTick(y));
       const lane = getInternalLaneForNewNote(rawLane, selectedType, tick);
-      if (selectedType === 'swap' && ![0, 5, 6].includes(lane)) return;
-      if (lane === 6 && !['swap', 'scramble', 'hold', 'shift'].includes(selectedType)) return;
-      if (selectedType === 'scramble' && lane !== 6) return;
+      if (!isValidPlacement(selectedType, lane)) return;
+      if (isNoteOccupied(tick, lane)) return;
       if(selectedType==='hold' || selectedType==='shift'){
         drag = { mode:'create-hold', type: selectedType, lane, startTick:tick, currentTick:tick+snapTicks() };
         draw();
@@ -91,9 +90,10 @@
     if(!chart) return;
     const rect = el.gridCanvas.getBoundingClientRect();
     const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top + (el.scrollWrap ? el.scrollWrap.scrollTop : 0);
+    const localY = e.clientY - rect.top;
+    const y = localY + (el.scrollWrap ? el.scrollWrap.scrollTop : 0);
     const withinX = x>=0 && x<=rect.width;
-    const withinY = y>=0 && y<=rect.height;
+    const withinY = localY>=0 && localY<=rect.height;
 
     if(withinX && withinY){
       const rawLane = xToLane(x);
@@ -133,13 +133,14 @@
         const deltaLane = currentRawLane - startRawLane;
         const deltaTick = tick - drag.grabStartTick;
 
+        const occupiedPositions = new Set();
         drag.items.forEach((orig,id)=>{
           const n = chart.notes.find(n=>n.id===id);
           if(!n) return;
-          n.tick = Math.max(0, orig.tick+deltaTick);
+          const targetTick = Math.max(0, orig.tick+deltaTick);
           
           let targetRawLane = clampLane(orig.rawLane + deltaLane);
-          let targetLane = getInternalLaneForNewNote(targetRawLane, n.type, n.tick);
+          let targetLane = getInternalLaneForNewNote(targetRawLane, n.type, targetTick);
 
           if (n.type === 'scramble') {
             targetLane = 6;
@@ -147,12 +148,15 @@
             if (![0, 5, 6].includes(targetLane)) {
               targetLane = [0, 5, 6].reduce((prev, curr) => Math.abs(curr - targetLane) < Math.abs(prev - targetLane) ? curr : prev);
             }
-          } else {
-            if (targetLane === 6) targetLane = 5;
           }
-          n.lane = targetLane;
-          if((n.type==='hold' || n.type==='shift') && orig.endTick!=null){
-            n.endTick = n.tick + (orig.endTick-orig.tick);
+          const positionKey = notePositionKey(targetTick, targetLane);
+          if (isValidPlacement(n.type, targetLane) && !isNoteOccupied(targetTick, targetLane, selectedIds) && !occupiedPositions.has(positionKey)) {
+            n.tick = targetTick;
+            n.lane = targetLane;
+            occupiedPositions.add(positionKey);
+            if((n.type==='hold' || n.type==='shift') && orig.endTick!=null){
+              n.endTick = n.tick + (orig.endTick-orig.tick);
+            }
           }
         });
       }

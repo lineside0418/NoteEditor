@@ -89,8 +89,7 @@
       metadata: {
         id: "001", title: "無題の譜面", artist: "", charter: "",
         difficulty: { name: "Low", level: 1 },
-        audio: { file: "", offset: 0 },
-        jacket: { file: "" },
+        audio: { offset: 0 },
         laneCount: 7, resolution: 960
       },
       timing: {
@@ -109,20 +108,20 @@
     if(!data || typeof data !== 'object'){ alert('不正なJSONです'); return; }
     if(!Array.isArray(data.notes)) data.notes = [];
     if(!data.metadata) data.metadata = {};
-    if(!data.timing) data.timing = {bpms:[{tick:0,bpm:120}], scrolls:[], timeSignatures:[{tick:0,numerator:4,denominator:4}], stops:[]};
-    if(!data.metadata.audio) data.metadata.audio = {file:'', offset:0};
-    if(!data.metadata.jacket) data.metadata.jacket = {file:''};
+    if(!data.timing) data.timing = {};
+    if(!Array.isArray(data.timing.bpms)) data.timing.bpms = [{tick:0,bpm:120}];
+    if(!Array.isArray(data.timing.scrolls)) data.timing.scrolls = [];
+    if(!Array.isArray(data.timing.timeSignatures)) data.timing.timeSignatures = [{tick:0,numerator:4,denominator:4}];
+    if(!Array.isArray(data.timing.stops)) data.timing.stops = [];
+    data.metadata.audio = { offset: Number.isFinite(Number(data.metadata.audio && data.metadata.audio.offset)) ? Number(data.metadata.audio.offset) : 0 };
+    delete data.metadata.jacket;
     if(!data.metadata.difficulty) data.metadata.difficulty = {name:'Low', level:1};
 
-    let incomingLaneCount = data.metadata.laneCount || 6;
-    if (incomingLaneCount < 7) {
-      data.metadata.laneCount = 7;
-      incomingLaneCount = 7;
-    }
+    data.metadata.laneCount = 7;
 
     chart = data;
     filename = name || 'chart.json';
-    laneCount = incomingLaneCount;
+    laneCount = 7;
     resolution = chart.metadata.resolution || 960;
 
     if (audioObjectUrl) {
@@ -152,6 +151,7 @@
     el.btnExport.disabled = false;
     el.btnMeta.disabled = false;
     el.btnAudio.disabled = false;
+    el.btnSettings.disabled = false;
     el.emptyState.style.display = 'none';
     el.laneHeader.style.display = 'flex';
     el.editorMainContainer.style.display = 'flex';
@@ -202,10 +202,12 @@
     el.m_charter.value = m.charter||'';
     el.m_diffName.value = (m.difficulty&&m.difficulty.name)||'';
     el.m_diffLevel.value = (m.difficulty&&m.difficulty.level!=null)?m.difficulty.level:0;
-    el.m_audioFile.value = (m.audio&&m.audio.file)||'';
     el.m_audioOffset.value = (m.audio&&m.audio.offset!=null)?m.audio.offset:0;
-    el.m_jacketFile.value = (m.jacket&&m.jacket.file)||'';
-    el.m_laneCount.value = m.laneCount||6;
+    const bpm0 = (chart.timing.bpms||[]).find(b=>b.tick===0) || {bpm:120};
+    const timeSignature0 = (chart.timing.timeSignatures||[]).find(t=>t.tick===0) || {numerator:4,denominator:4};
+    el.m_bpm.value = bpm0.bpm;
+    el.m_timeSigNumerator.value = timeSignature0.numerator;
+    el.m_timeSigDenominator.value = timeSignature0.denominator;
     el.m_resolution.value = m.resolution||960;
     el.metaModalOverlay.classList.add('open');
   }
@@ -214,15 +216,13 @@
   el.metaModalOverlay.addEventListener('click', (e)=>{ if(e.target===el.metaModalOverlay) closeMetaModal(); });
 
   el.metaSave.addEventListener('click', ()=>{
-    const newLaneCount = parseInt(el.m_laneCount.value,10) || 6;
     const newResolution = parseInt(el.m_resolution.value,10) || 960;
-
-    if(newLaneCount < laneCount){
-      const orphaned = (chart.notes||[]).filter(n=>n.lane >= newLaneCount).length;
-      if(orphaned>0){
-        const ok = confirm(orphaned+' 件のノーツがレーン範囲外になります。続行しますか？');
-        if(!ok) return;
-      }
+    const bpm = parseFloat(el.m_bpm.value);
+    const numerator = parseInt(el.m_timeSigNumerator.value,10);
+    const denominator = parseInt(el.m_timeSigDenominator.value,10);
+    if(!Number.isFinite(bpm) || bpm<=0 || !Number.isInteger(numerator) || numerator<1 || !Number.isInteger(denominator) || denominator<1){
+      alert('BPMと拍子には正の数を入力してください。');
+      return;
     }
 
     chart.metadata.id = el.m_id.value;
@@ -230,15 +230,19 @@
     chart.metadata.artist = el.m_artist.value;
     chart.metadata.charter = el.m_charter.value;
     chart.metadata.difficulty = { name: el.m_diffName.value, level: parseFloat(el.m_diffLevel.value)||0 };
-    chart.metadata.audio = {
-      file: el.m_audioFile.value,
-      offset: parseFloat(el.m_audioOffset.value)||0
-    };
-    chart.metadata.jacket = { file: el.m_jacketFile.value };
-    chart.metadata.laneCount = newLaneCount;
+    chart.metadata.audio = { offset: parseFloat(el.m_audioOffset.value)||0 };
+    delete chart.metadata.jacket;
+    chart.metadata.laneCount = 7;
     chart.metadata.resolution = newResolution;
 
-    laneCount = newLaneCount;
+    const bpmIndex = chart.timing.bpms.findIndex(b=>b.tick===0);
+    if(bpmIndex >= 0) chart.timing.bpms[bpmIndex].bpm = bpm;
+    else chart.timing.bpms.push({tick:0,bpm});
+    const timeSignatureIndex = chart.timing.timeSignatures.findIndex(t=>t.tick===0);
+    if(timeSignatureIndex >= 0) Object.assign(chart.timing.timeSignatures[timeSignatureIndex], {numerator, denominator});
+    else chart.timing.timeSignatures.push({tick:0,numerator,denominator});
+
+    laneCount = 7;
     resolution = newResolution;
 
     buildLaneHeader();
@@ -276,11 +280,7 @@
     if(audioObjectUrl) URL.revokeObjectURL(audioObjectUrl);
     audioObjectUrl = URL.createObjectURL(file);
     audio.src = audioObjectUrl;
-    if(chart){
-      chart.metadata.audio = chart.metadata.audio || {};
-      chart.metadata.audio.file = file.name;
-      updateMetaStats();
-    }
+    if(chart) updateMetaStats();
     el.audioFileLabel.textContent = file.name + " (Loading waveform...)";
     el.transport.classList.remove('disabled');
     el.btnPlayPause.disabled = false;
@@ -382,14 +382,12 @@
           preciseTime = (audioCtx.currentTime - audioContextOffset) * (audio.playbackRate || 1);
         }
         currentAudioTime = preciseTime;
-        
+        draw();
         const curTick = tickForAudioTime(preciseTime);
         const py = tickToY(curTick);
+        scheduleHitSounds(preciseTime);
         const wantTop = py - el.scrollWrap.clientHeight*0.3;
         el.scrollWrap.scrollTop = Math.max(0, wantTop);
-        
-        draw();
-        scheduleHitSounds(preciseTime);
       }
       rafHandle = requestAnimationFrame(loop);
     }

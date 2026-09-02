@@ -15,22 +15,38 @@
   el.btnMeta.addEventListener('click', openMetaModal);
   el.btnAudio.addEventListener('click', ()=>el.audioInput.click());
   el.audioInput.addEventListener('change', onAudioChosen);
+  el.btnSettings.addEventListener('click', openSettingsModal);
   el.btnUndo.addEventListener('click', undo);
   el.btnRedo.addEventListener('click', redo);
   el.snapSelect.addEventListener('change', ()=>{ snapN = parseInt(el.snapSelect.value,10); });
   el.playbackRateSelect.addEventListener('change', ()=>{
     if (audio) audio.playbackRate = parseFloat(el.playbackRateSelect.value);
   });
-  el.swapVisualizeToggle.addEventListener('change', (e) => {
-    isSwapVisualizeMode = e.target.checked;
-    draw();
-  });
+  el.swapVisualizeToggle.addEventListener('change', (e) => setSwapVisualize(e.target.checked));
+  el.centerSpaceToggle.addEventListener('change', (e) => setCenterSpace(e.target.checked));
+  el.settingsClose.addEventListener('click', closeSettingsModal);
+  el.settingsModalOverlay.addEventListener('click', (e)=>{ if(e.target===el.settingsModalOverlay) closeSettingsModal(); });
+  el.btnSwapSimulator.addEventListener('click', runSwapSimulator);
 
-  el.centerSpaceToggle.addEventListener('change', (e) => {
-    isCenterSpaceMode = e.target.checked;
-    if (typeof buildLaneHeader === 'function') buildLaneHeader();
-    draw();
-  });
+  function openSettingsModal(){
+    el.swapVisualizeToggle.checked = isSwapVisualizeMode;
+    el.centerSpaceToggle.checked = isCenterSpaceMode;
+    el.btnSwapSimulator.disabled = !chart;
+    el.settingsModalOverlay.classList.add('open');
+  }
+  function closeSettingsModal(){ el.settingsModalOverlay.classList.remove('open'); }
+  function setSwapVisualize(enabled){
+    isSwapVisualizeMode = enabled;
+    if(chart) draw();
+  }
+  function setCenterSpace(enabled){
+    isCenterSpaceMode = enabled;
+    if(chart){
+      buildLaneHeader();
+      resizeCanvas();
+      draw();
+    }
+  }
 
   el.zoomIn.addEventListener('click', ()=>setZoom(zoom*1.25));
   el.zoomOut.addEventListener('click', ()=>setZoom(zoom/1.25));
@@ -62,9 +78,31 @@
   document.addEventListener('keydown', (e)=>{
     const tag = (document.activeElement && document.activeElement.tagName) || '';
     const inField = tag==='INPUT' || tag==='TEXTAREA' || tag==='SELECT';
+    if(e.key==='Escape' && el.settingsModalOverlay.classList.contains('open')){
+      e.preventDefault();
+      closeSettingsModal();
+      return;
+    }
+    if(e.key==='Escape' && el.metaModalOverlay.classList.contains('open')){
+      e.preventDefault();
+      closeMetaModal();
+      return;
+    }
     if(!chart){ return; }
     if(inField){
-      if(e.key==='Escape') closeMetaModal();
+      if(e.key==='Escape') { closeMetaModal(); closeSettingsModal(); }
+      return;
+    }
+    if(drag && drag.mode==='paste' && e.key==='Escape'){
+      e.preventDefault();
+      drag = null;
+      draw();
+      return;
+    }
+    if(drag && drag.mode==='paste' && e.key.toLowerCase()==='m'){
+      e.preventDefault();
+      drag.flipped = !drag.flipped;
+      draw();
       return;
     }
     if(e.key==='1'){ selectType('tap'); }
@@ -97,7 +135,7 @@
     else if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='v'){
       if(clipboard && clipboard.length > 0){
         e.preventDefault();
-        drag = { mode: 'paste', items: clipboard, snapTick: 0, lane: 0 };
+          drag = { mode: 'paste', items: clipboard, snapTick: 0, lane: 0, sourceAnchorLane: clipboard[0].lane, flipped: false };
         draw();
       }
     }
@@ -112,11 +150,6 @@
         e.preventDefault();
         mirrorSelected();
       }
-    }
-    else if(e.key==='Escape' && drag && drag.mode==='paste'){
-      e.preventDefault();
-      drag = null;
-      draw();
     }
     else if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='z'){
       e.preventDefault(); if(e.shiftKey) redo(); else undo();
