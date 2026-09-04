@@ -91,9 +91,10 @@
 
   // ---------------------------------------------------------------
   function getPasteDestinationLane(item, targetAnchorLane, sourceAnchorLane, flipped) {
-    const sourceLane = item.lane;
+    const sourceLane = item.visualLane != null ? item.visualLane : item.lane;
+    const laneOffset = item.dVisualLane != null ? item.dVisualLane : item.dLane;
     if (!flipped) {
-      return targetAnchorLane + item.dLane;
+      return targetAnchorLane + laneOffset;
     }
     const mirroredLane = sourceLane === 6 ? 6 : 5 - sourceLane;
     const mirroredAnchorLane = sourceAnchorLane === 6 ? 6 : 5 - sourceAnchorLane;
@@ -110,15 +111,17 @@
       const rawLane = getPasteDestinationLane(item, drag.lane, drag.sourceAnchorLane, drag.flipped);
       if(t < 0) return;
       if (!isValidPlacement(item.type, rawLane)) return;
-      const l = getInternalLaneForNewNote(rawLane, item.type, t);
+      const newId = nextId();
+      const l = getInternalLaneForNewNote(rawLane, item.type, t, newId);
       if (!isValidPlacement(item.type, l)) return;
       const positionKey = notePositionKey(t, l);
       if (occupied.has(positionKey)) return;
       
-      const n = { id: nextId(), tick: t, lane: l, type: item.type, size: item.size || 1 };
+      const n = { id: newId, tick: t, lane: l, type: item.type, size: item.size || 1 };
       if(item.dEndTick != null) {
         n.endTick = drag.snapTick + item.dEndTick;
       }
+      if(doesHoldCrossScramble(n.type, n.tick, n.endTick)) return;
       if(item.mutatorData) n.mutatorData = JSON.parse(JSON.stringify(item.mutatorData));
       
       chart.notes.push(n);
@@ -136,20 +139,62 @@
 
   function runSwapSimulator() {
     if (!chart || !Array.isArray(chart.notes)) return;
-    rebuildLaneStates();
-    const targets = chart.notes.filter(isSwapSimulationTarget);
-    if (targets.length === 0) {
-      alert('変換できる通常ノーツがありません。');
+    const crossingHold = findHoldCrossingScramble();
+    if(crossingHold){
+      alert(`ID ${crossingHold.id} の${crossingHold.type.toUpperCase()}がSCRAMBLEをまたいでいます。先に譜面を修正してください。`);
       return;
     }
-    const message = `${targets.length} 件の通常ノーツを、SWAP / SCRAMBLE適用後も現在と同じ見た目になる元レーン配置へ変換します。\n\nこの操作はUndoで元に戻せます。実行しますか？`;
+    const invalidPlacement = findInvalidNotePlacement();
+    if(invalidPlacement){
+      alert(`ID ${invalidPlacement.id} の${invalidPlacement.type.toUpperCase()}は、このレーンへ配置できません。先に譜面を修正してください。`);
+      return;
+    }
+    const message = `この譜面を「Swap Visualize ONの見た目で作成された譜面」として、ゲームで同じ見た目になる内部レーンへ変換します。\n\nこの操作はUndoで元に戻せます。実行しますか？`;
     if (!confirm(message)) return;
+
+    const nextLanes = new Map();
+    let mapping = createLaneMapping();
+    const notesByTick = new Map();
+    chart.notes.forEach(n => {
+      if(!notesByTick.has(n.tick)) notesByTick.set(n.tick, []);
+      notesByTick.get(n.tick).push(n);
+    });
+    const ticks = [...notesByTick.keys()].sort((a,b)=>a-b);
+    for(const tick of ticks){
+      const notesAtTick = notesByTick.get(tick).slice().sort(compareGameOrder);
+      const gimmicks = notesAtTick.filter(n => n.type === 'swap' || n.type === 'scramble');
+      const normalNotes = notesAtTick.filter(n => n.type !== 'swap' && n.type !== 'scramble');
+
+      // Same-tick notes intentionally use the mapping before any gimmick at
+      // this tick. The gimmicks below only change later ticks.
+      normalNotes.forEach(n => {
+        nextLanes.set(n.id, mapping[mappingNameForType(n.type)][n.lane]);
+      });
+
+      for(const gimmick of gimmicks){
+        if(gimmick.type === 'scramble' && gimmick.lane !== 6){
+          alert(`ID ${gimmick.id} のSCRAMBLEは7レーンに配置してください。変換を中止しました。`);
+          return;
+        }
+        nextLanes.set(gimmick.id, mapping.normal[gimmick.lane]);
+      }
+
+      const outputGimmicks = gimmicks.slice().sort((a,b) => {
+        const laneDiff = nextLanes.get(a.id) - nextLanes.get(b.id);
+        return laneDiff || a.id - b.id;
+      });
+      outputGimmicks.forEach(gimmick => {
+        if(gimmick.type === 'scramble') applyScrambleMapping(mapping);
+        else applySwapMapping(mapping, nextLanes.get(gimmick.id));
+      });
+
+    }
 
     pushHistory();
     let changed = 0;
-    targets.forEach(n => {
+    chart.notes.forEach(n => {
       const originalLane = n.lane;
-      const mappedLane = getLaneMapping(n.tick).R[originalLane];
+      const mappedLane = nextLanes.get(n.id);
       if (mappedLane !== originalLane) {
         n.lane = mappedLane;
         changed++;
@@ -167,11 +212,16 @@
   function mirrorSelected() {
     if(selectedIds.size === 0) return;
     pushHistory();
+    const occupied = new Set();
     chart.notes.forEach(n => {
       if(selectedIds.has(n.id)) {
-        // Mirror lanes 0-5. Lane 6 (SPACE) remains unaffected.
-        if(n.lane >= 0 && n.lane <= 5) {
-          n.lane = 5 - n.lane;
+        const visualLane = getVisualLane(n);
+        const mirroredVisualLane = visualLane === 6 ? 6 : 5 - visualLane;
+        const mirroredLane = getInternalLaneForNewNote(mirroredVisualLane, n.type, n.tick, n.id);
+        const position = notePositionKey(n.tick, mirroredLane);
+        if(isValidPlacement(n.type, mirroredLane) && !isNoteOccupied(n.tick, mirroredLane, selectedIds) && !occupied.has(position)) {
+          n.lane = mirroredLane;
+          occupied.add(position);
         }
       }
     });

@@ -11,12 +11,12 @@
 <body>
 
 <header>
-  <!-- 1段目：ファイル操作・メタデータ・テーマ -->
+  <!-- 1段目：ファイル操作・メタデータ・設定 -->
   <div class="header-row">
     <div class="brand">RCF-1 <small>Chart Editor</small></div>
     <div class="divider"></div>
     <button id="btnLoad" title="読み込み"><span class="material-symbols-outlined">folder_open</span>読込</button>
-    <input type="file" id="fileInput" accept="application/json,.json">
+    <input type="file" id="fileInput" accept="application/json,.json,application/zip,.mcz">
     <button id="btnNew" title="新規作成"><span class="material-symbols-outlined">add_box</span>新規</button>
     <button id="btnExport" class="primary" title="書き出し" disabled><span class="material-symbols-outlined">save</span>書出</button>
     <button id="btnMeta" title="メタデータ編集" disabled><span class="material-symbols-outlined">info</span>メタ</button>
@@ -74,8 +74,8 @@
   <div class="grid-area" id="gridArea">
     <div class="empty-state" id="emptyState">
       <div class="glyph">RCF-1</div>
-      <p>JSONファイルを読み込んでください</p>
-      <button id="btnLoad2" class="primary"><span class="material-symbols-outlined">folder_open</span> JSONを読み込み</button>
+      <p>JSON または MCZ ファイルを読み込んでください</p>
+      <button id="btnLoad2" class="primary"><span class="material-symbols-outlined">folder_open</span> チャートを読み込み</button>
     </div>
     <div class="lane-header" id="laneHeader" style="display:none;"></div>
     <div class="editor-main-container" id="editorMainContainer" style="display:none; flex:1; position:relative; overflow:hidden; flex-direction:row;">
@@ -141,7 +141,7 @@
       <h4>難易度</h4>
       <div class="field-row">
         <label>難易度名<input type="text" id="m_diffName"></label>
-        <label>難易度数値<input type="number" id="m_diffLevel"></label>
+        <label>難易度数値<input type="number" id="m_diffLevel" min="0" step="0.01"></label>
       </div>
     </div>
 
@@ -217,6 +217,7 @@
 
 <audio id="audioEl"></audio>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
 <script src="js/config.js"></script>
   <script src="js/state.js"></script>
   <script src="js/math.js"></script>

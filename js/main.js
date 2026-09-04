@@ -118,15 +118,16 @@
     else if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='c'){
       if(selectedIds.size > 0){
         e.preventDefault();
-        const sel = Array.from(selectedIds).map(id => chart.notes.find(n=>n.id===id)).filter(Boolean);
+        const sel = Array.from(selectedIds).map(id => chart.notes.find(n=>n.id===id)).filter(Boolean).map(n => ({ note:n, visualLane:getVisualLane(n) }));
         if(sel.length > 0) {
-          sel.sort((a,b)=>a.tick-b.tick);
-          const anchorTick = sel[0].tick;
-          const anchorLane = sel[0].lane;
-          clipboard = sel.map(n => Object.assign({}, n, {
-            dTick: n.tick - anchorTick,
-            dEndTick: n.endTick != null ? n.endTick - anchorTick : null,
-            dLane: n.lane - anchorLane
+          sel.sort((a,b)=>a.note.tick-b.note.tick || a.visualLane-b.visualLane || a.note.id-b.note.id);
+          const anchorTick = sel[0].note.tick;
+          const anchorVisualLane = sel[0].visualLane;
+          clipboard = sel.map(({note,visualLane}) => Object.assign({}, note, {
+            visualLane,
+            dTick: note.tick - anchorTick,
+            dEndTick: note.endTick != null ? note.endTick - anchorTick : null,
+            dVisualLane: visualLane - anchorVisualLane
           }));
           console.log('Copied', clipboard.length, 'notes');
         }
@@ -135,7 +136,7 @@
     else if((e.ctrlKey||e.metaKey) && e.key.toLowerCase()==='v'){
       if(clipboard && clipboard.length > 0){
         e.preventDefault();
-          drag = { mode: 'paste', items: clipboard, snapTick: 0, lane: 0, sourceAnchorLane: clipboard[0].lane, flipped: false };
+          drag = { mode: 'paste', items: clipboard, snapTick: 0, lane: 0, sourceAnchorLane: clipboard[0].visualLane, flipped: false };
         draw();
       }
     }

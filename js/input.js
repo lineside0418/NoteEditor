@@ -32,8 +32,8 @@
         else if(e.ctrlKey || e.metaKey){ toggleSelect(hit.note.id); }
         else {
           if(!selectedIds.has(hit.note.id)) selectOnly(hit.note.id);
-          if(hit.note.type==='hold' && hit.zone==='end' && selectedIds.size<=1){
-            drag = {mode:'resize-hold', note:hit.note, snapshotTaken:false};
+          if((hit.note.type==='hold' || hit.note.type==='shift') && hit.zone==='end' && selectedIds.size<=1){
+            drag = {mode:'resize-hold', note:hit.note, originalEndTick:hit.note.endTick, snapshotTaken:false};
           } else {
             beginGroupDrag(x,y,hit.note);
           }
@@ -52,7 +52,7 @@
         selectOnly(hit.note.id);
         updateInspector();
         if((hit.note.type==='hold' || hit.note.type==='shift') && hit.zone==='end'){
-          drag = {mode:'resize-hold', note:hit.note, snapshotTaken:false};
+          drag = {mode:'resize-hold', note:hit.note, originalEndTick:hit.note.endTick, snapshotTaken:false};
         } else {
           beginGroupDrag(x,y,hit.note);
         }
@@ -140,7 +140,7 @@
           const targetTick = Math.max(0, orig.tick+deltaTick);
           
           let targetRawLane = clampLane(orig.rawLane + deltaLane);
-          let targetLane = getInternalLaneForNewNote(targetRawLane, n.type, targetTick);
+          let targetLane = getInternalLaneForNewNote(targetRawLane, n.type, targetTick, n.id);
 
           if (n.type === 'scramble') {
             targetLane = 6;
@@ -150,12 +150,13 @@
             }
           }
           const positionKey = notePositionKey(targetTick, targetLane);
-          if (isValidPlacement(n.type, targetLane) && !isNoteOccupied(targetTick, targetLane, selectedIds) && !occupiedPositions.has(positionKey)) {
+          const targetEndTick = (n.type==='hold' || n.type==='shift') && orig.endTick!=null ? targetTick + (orig.endTick-orig.tick) : n.endTick;
+          if (isValidPlacement(n.type, targetLane) && !doesHoldCrossScramble(n.type, targetTick, targetEndTick) && !isNoteOccupied(targetTick, targetLane, selectedIds) && !occupiedPositions.has(positionKey)) {
             n.tick = targetTick;
             n.lane = targetLane;
             occupiedPositions.add(positionKey);
             if((n.type==='hold' || n.type==='shift') && orig.endTick!=null){
-              n.endTick = n.tick + (orig.endTick-orig.tick);
+              n.endTick = targetEndTick;
             }
           }
         });
@@ -171,12 +172,22 @@
     if(!drag) return;
     if(drag.mode==='create-hold'){
       const len = Math.max(snapTicks()*MIN_HOLD_LEN_UNITS, drag.currentTick-drag.startTick);
+      const endTick = drag.startTick + len;
+      if(doesHoldCrossScramble(drag.type, drag.startTick, endTick)){
+        alert('HOLD/SHIFTはSCRAMBLEをまたぐように配置できません。');
+        drag = null;
+        draw();
+        return;
+      }
       pushHistory();
       // ここのノーツ作成時もflagsを削除してるよ
-      const n = { id: nextId(), tick:drag.startTick, endTick:drag.startTick+len, lane:drag.lane, type:drag.type || 'hold', size:1 };
+      const n = { id: nextId(), tick:drag.startTick, endTick, lane:drag.lane, type:drag.type || 'hold', size:1 };
       chart.notes.push(n);
       selectOnly(n.id);
       updateNoteCounts(); updateInspector(); updateFooterCounts();
+    } else if(drag.mode==='resize-hold' && doesHoldCrossScramble(drag.note.type, drag.note.tick, drag.note.endTick)){
+      drag.note.endTick = drag.originalEndTick;
+      alert('HOLD/SHIFTはSCRAMBLEをまたぐように変更できません。');
     } else if(drag.mode==='rect-select'){
       const x0=Math.min(drag.x0,drag.x1), x1=Math.max(drag.x0,drag.x1);
       const y0=Math.min(drag.y0,drag.y1), y1=Math.max(drag.y0,drag.y1);

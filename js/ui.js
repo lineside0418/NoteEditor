@@ -1,7 +1,16 @@
 // Inspector / side panel rendering
   // ---------------------------------------------------------------
   function updateMetaStats(){
-    const m = chart.metadata||{};
+    const metadata = chart.metadata || {};
+    const rawDifficulty = metadata.difficulty || {};
+    const difficultyLevel = Number(rawDifficulty.level);
+    const m = {
+      ...metadata,
+      difficulty: {
+        ...rawDifficulty,
+        level: Number.isFinite(difficultyLevel) ? difficultyLevel.toFixed(2) : '0.00'
+      }
+    };
     const bpms = sortedBpms();
     const bpmRange = bpms.length ? [...new Set(bpms.map(b=>b.bpm))].join(' → ') : '-';
     el.metaStats.innerHTML = `

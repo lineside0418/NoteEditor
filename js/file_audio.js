@@ -58,12 +58,18 @@
     }
     try {
       const [fileHandle] = await window.showOpenFilePicker({
-        types: [{ description: 'JSON Files', accept: { 'application/json': ['.json'] } }],
+        types: [{
+          description: 'Chart / MCZ Files',
+          accept: { 'application/json': ['.json'], 'application/zip': ['.mcz'] }
+        }],
       });
       const file = await fileHandle.getFile();
-      const text = await file.text();
-      currentFileHandle = fileHandle;
-      loadChart(JSON.parse(text), file.name);
+      if(file.name.toLowerCase().endsWith('.mcz')) {
+        await loadMczChartFile(file);
+      } else {
+        const text = await file.text();
+        loadChart(JSON.parse(text), file.name);
+      }
     } catch(err) {
       if (err.name !== 'AbortError') alert('ファイルの読み込みに失敗しました: ' + err.message);
     }
@@ -72,6 +78,11 @@
   function onFileChosen(e){
     const file = e.target.files[0];
     if(!file) return;
+    if(file.name.toLowerCase().endsWith('.mcz')){
+      el.fileInput.value = '';
+      loadMczChartFile(file).catch(err => alert('MCZファイルの読み込みに失敗しました: ' + err.message));
+      return;
+    }
     const reader = new FileReader();
     reader.onload = ()=>{
       try{ loadChart(JSON.parse(reader.result), file.name); }
@@ -82,8 +93,124 @@
   }
 
   // 新しいJSON構造に合わせたデフォルトデータを生成するよ
+  // Converter と同じ選択規則で MCZ を開き、変換結果をダウンロードせずエディタへ渡す。
+  async function loadMczChartFile(file){
+    if(typeof JSZip === 'undefined'){
+      throw new Error('MCZ展開ライブラリを読み込めませんでした。ネットワーク接続を確認して再読み込みしてください。');
+    }
+    const zip = await JSZip.loadAsync(file);
+    const paths = Object.keys(zip.files);
+    let maxFolderDigit = -1;
+    let folderPrefix = '';
+    paths.forEach(path => {
+      const match = path.match(/^(\d)\//);
+      if(!match) return;
+      const digit = Number.parseInt(match[1], 10);
+      if(digit > maxFolderDigit){
+        maxFolderDigit = digit;
+        folderPrefix = match[1] + '/';
+      }
+    });
+    if(maxFolderDigit < 0) throw new Error('数字フォルダが見つかりませんでした。');
+
+    let highestChartNumber = -1;
+    let chartPath = null;
+    paths.forEach(path => {
+      if(!path.startsWith(folderPrefix)) return;
+      const filename = path.slice(folderPrefix.length);
+      const match = filename.match(/^(\d+)\.mc$/i);
+      if(!match) return;
+      const chartNumber = Number.parseInt(match[1], 10);
+      if(chartNumber > highestChartNumber){
+        highestChartNumber = chartNumber;
+        chartPath = path;
+      }
+    });
+    if(!chartPath) throw new Error('対象の .mc ファイルが見つかりませんでした。');
+
+    let source;
+    try {
+      source = JSON.parse(await zip.files[chartPath].async('string'));
+    } catch(err) {
+      throw new Error(`MCZ内の ${chartPath} をJSONとして読み込めませんでした: ${err.message}`);
+    }
+    await loadChart(convertLegacyChartToRicf1(source), file.name.replace(/\.mcz$/i, '_ricf1.json'));
+  }
+
+  function convertLegacyChartToRicf1(source){
+    const converterResolution = 960;
+    let metadata;
+    let timing;
+    const notes = [];
+
+    if(source.meta && Array.isArray(source.note)){
+      metadata = {
+        id: source.meta.version || '001',
+        title: source.meta.song && source.meta.song.title || 'Unknown Title',
+        artist: source.meta.song && source.meta.song.artist || '',
+        charter: source.meta.creator || '',
+        difficulty: { name: source.meta.version || 'Low', level: 1 },
+        audio: { offset: 0 }, laneCount: 7, resolution: converterResolution
+      };
+      timing = {
+        bpms: [], scrolls: [{tick:0, speed:1}],
+        timeSignatures: [{tick:0, numerator:4, denominator:4}], stops: []
+      };
+      if(Array.isArray(source.time)){
+        source.time.forEach(entry => {
+          if(!Array.isArray(entry.beat) || !Number.isFinite(entry.bpm)) return;
+          const beat = entry.beat[0] + (entry.beat[2] > 0 ? entry.beat[1] / entry.beat[2] : 0);
+          timing.bpms.push({tick:Math.round(beat * converterResolution), bpm:entry.bpm});
+        });
+      }
+      if(timing.bpms.length === 0) timing.bpms.push({tick:0, bpm:120});
+      source.note.forEach(entry => {
+        if(!Number.isFinite(entry.column) || !Array.isArray(entry.beat)) return;
+        const beat = entry.beat[0] + (entry.beat[2] > 0 ? entry.beat[1] / entry.beat[2] : 0);
+        let lane = entry.column;
+        if(lane === 3) lane = 6;
+        else if(lane === 4) lane = 3;
+        else if(lane === 5) lane = 4;
+        else if(lane === 6) lane = 5;
+        const note = {id:0, tick:Math.round(beat * converterResolution), lane, type:'tap', size:1};
+        if(Array.isArray(entry.endbeat)){
+          const endBeat = entry.endbeat[0] + (entry.endbeat[2] > 0 ? entry.endbeat[1] / entry.endbeat[2] : 0);
+          note.type = 'hold';
+          note.endTick = Math.round(endBeat * converterResolution);
+        }
+        notes.push(note);
+      });
+    } else {
+      metadata = {
+        id: source.name || '001', title: source.name || 'Unknown Title', artist:'', charter:'',
+        difficulty:{name:'Low', level:1}, audio:{offset:Number.isFinite(source.offset) ? source.offset : 0},
+        laneCount:7, resolution:converterResolution
+      };
+      timing = {
+        bpms:[{tick:0, bpm:Number.isFinite(source.BPM) ? source.BPM : 120}],
+        scrolls:[{tick:0, speed:1}], timeSignatures:[{tick:0, numerator:4, denominator:4}], stops:[]
+      };
+      if(Array.isArray(source.notes)){
+        source.notes.forEach(entry => {
+          if(!Number.isFinite(entry.num) || !Number.isFinite(entry.LPB) || !Number.isFinite(entry.block)) return;
+          const tick = Math.round(entry.num / entry.LPB * converterResolution);
+          const note = {id:0, tick, lane:entry.block, type:entry.type === 2 ? 'hold' : 'tap', size:1};
+          if(note.type === 'hold'){
+            const end = Array.isArray(entry.notes) && entry.notes[0];
+            note.endTick = end && Number.isFinite(end.num) && Number.isFinite(end.LPB)
+              ? Math.round(end.num / end.LPB * converterResolution)
+              : tick + converterResolution;
+          }
+          notes.push(note);
+        });
+      }
+    }
+    notes.sort((a,b) => a.tick - b.tick || a.lane - b.lane);
+    notes.forEach((note, index) => { note.id = index + 1; });
+    return {version:1, metadata, timing, notes, events:[]};
+  }
+
   function createNewChart(){
-    currentFileHandle = null;
     const data = {
       version: 1,
       metadata: {
@@ -109,10 +236,9 @@
     if(!Array.isArray(data.notes)) data.notes = [];
     if(!data.metadata) data.metadata = {};
     if(!data.timing) data.timing = {};
-    if(!Array.isArray(data.timing.bpms)) data.timing.bpms = [{tick:0,bpm:120}];
-    if(!Array.isArray(data.timing.scrolls)) data.timing.scrolls = [];
-    if(!Array.isArray(data.timing.timeSignatures)) data.timing.timeSignatures = [{tick:0,numerator:4,denominator:4}];
-    if(!Array.isArray(data.timing.stops)) data.timing.stops = [];
+    normalizeChartTiming(data.timing);
+    if(!Array.isArray(data.events)) data.events = [];
+    if(!Number.isInteger(data.version)) data.version = 1;
     data.metadata.audio = { offset: Number.isFinite(Number(data.metadata.audio && data.metadata.audio.offset)) ? Number(data.metadata.audio.offset) : 0 };
     delete data.metadata.jacket;
     if(!data.metadata.difficulty) data.metadata.difficulty = {name:'Low', level:1};
@@ -122,7 +248,13 @@
     chart = data;
     filename = name || 'chart.json';
     laneCount = 7;
-    resolution = chart.metadata.resolution || 960;
+    if(!Number.isInteger(chart.metadata.resolution) || chart.metadata.resolution < 1) chart.metadata.resolution = 960;
+    resolution = chart.metadata.resolution;
+
+    const crossingHold = findHoldCrossingScramble();
+    if(crossingHold) alert(`ID ${crossingHold.id} の${crossingHold.type.toUpperCase()}がSCRAMBLEをまたいでいます。修正するまで書き出しできません。`);
+    const invalidPlacement = findInvalidNotePlacement();
+    if(invalidPlacement) alert(`ID ${invalidPlacement.id} の${invalidPlacement.type.toUpperCase()}は、このレーンへ配置できません。修正するまで書き出しできません。`);
 
     if (audioObjectUrl) {
       URL.revokeObjectURL(audioObjectUrl);
@@ -130,6 +262,12 @@
     }
     audio.removeAttribute('src');
     audio.load();
+    audioLoadGeneration++;
+    audioBuffer = null;
+    waveformData = null;
+    currentAudioTime = 0;
+    nextHitSoundIndex = 0;
+    lastHitSoundTime = -1;
     el.audioFileLabel.textContent = '音声未読み込み';
     el.transport.classList.add('disabled');
     el.btnPlayPause.disabled = true;
@@ -201,7 +339,8 @@
     el.m_artist.value = m.artist||'';
     el.m_charter.value = m.charter||'';
     el.m_diffName.value = (m.difficulty&&m.difficulty.name)||'';
-    el.m_diffLevel.value = (m.difficulty&&m.difficulty.level!=null)?m.difficulty.level:0;
+    const difficultyLevel = Number(m.difficulty && m.difficulty.level);
+    el.m_diffLevel.value = Number.isFinite(difficultyLevel) ? difficultyLevel.toFixed(2) : '0.00';
     el.m_audioOffset.value = (m.audio&&m.audio.offset!=null)?m.audio.offset:0;
     const bpm0 = (chart.timing.bpms||[]).find(b=>b.tick===0) || {bpm:120};
     const timeSignature0 = (chart.timing.timeSignatures||[]).find(t=>t.tick===0) || {numerator:4,denominator:4};
@@ -216,12 +355,13 @@
   el.metaModalOverlay.addEventListener('click', (e)=>{ if(e.target===el.metaModalOverlay) closeMetaModal(); });
 
   el.metaSave.addEventListener('click', ()=>{
-    const newResolution = parseInt(el.m_resolution.value,10) || 960;
+    const newResolution = parseInt(el.m_resolution.value,10);
     const bpm = parseFloat(el.m_bpm.value);
     const numerator = parseInt(el.m_timeSigNumerator.value,10);
     const denominator = parseInt(el.m_timeSigDenominator.value,10);
-    if(!Number.isFinite(bpm) || bpm<=0 || !Number.isInteger(numerator) || numerator<1 || !Number.isInteger(denominator) || denominator<1){
-      alert('BPMと拍子には正の数を入力してください。');
+    const difficultyLevel = parseFloat(el.m_diffLevel.value);
+    if(!Number.isInteger(newResolution) || newResolution<1 || !Number.isFinite(bpm) || bpm<=0 || !Number.isInteger(numerator) || numerator<1 || !Number.isInteger(denominator) || denominator<1 || !Number.isFinite(difficultyLevel) || difficultyLevel<0){
+      alert('resolution、BPM、拍子には正の数を入力してください。');
       return;
     }
 
@@ -229,7 +369,7 @@
     chart.metadata.title = el.m_title.value;
     chart.metadata.artist = el.m_artist.value;
     chart.metadata.charter = el.m_charter.value;
-    chart.metadata.difficulty = { name: el.m_diffName.value, level: parseFloat(el.m_diffLevel.value)||0 };
+    chart.metadata.difficulty = { name: el.m_diffName.value, level: Math.round(difficultyLevel * 100) / 100 };
     chart.metadata.audio = { offset: parseFloat(el.m_audioOffset.value)||0 };
     delete chart.metadata.jacket;
     chart.metadata.laneCount = 7;
@@ -279,6 +419,11 @@
     if(!file) return;
     if(audioObjectUrl) URL.revokeObjectURL(audioObjectUrl);
     audioObjectUrl = URL.createObjectURL(file);
+    const loadGeneration = ++audioLoadGeneration;
+    audioBuffer = null;
+    waveformData = null;
+    nextHitSoundIndex = 0;
+    lastHitSoundTime = -1;
     audio.src = audioObjectUrl;
     if(chart) updateMetaStats();
     el.audioFileLabel.textContent = file.name + " (Loading waveform...)";
@@ -287,12 +432,15 @@
     el.seekBar.disabled = false;
     el.playbackRateSelect.disabled = false;
     e.target.value = '';
+    if(chart) draw();
 
     const reader = new FileReader();
     reader.onload = async (ev) => {
       try {
         if (audioCtx.state === 'suspended') await audioCtx.resume();
-        audioBuffer = await audioCtx.decodeAudioData(ev.target.result);
+        const decodedBuffer = await audioCtx.decodeAudioData(ev.target.result);
+        if(loadGeneration !== audioLoadGeneration) return;
+        audioBuffer = decodedBuffer;
         generateWaveformData();
         el.audioFileLabel.textContent = file.name;
         if(chart) draw();
@@ -400,8 +548,24 @@
   // ---------------------------------------------------------------
   async function exportChart(){
     if(!chart) return;
+    const validationErrors = validateChartForExport();
+    if(validationErrors.length){
+      alert(`書き出しできません。\n\n${validationErrors.slice(0, 10).join('\n')}${validationErrors.length > 10 ? `\nほか ${validationErrors.length - 10} 件` : ''}`);
+      return;
+    }
+    const crossingHold = findHoldCrossingScramble();
+    if(crossingHold){
+      alert(`ID ${crossingHold.id} の${crossingHold.type.toUpperCase()}がSCRAMBLEをまたいでいます。先に譜面を修正してください。`);
+      return;
+    }
+    const invalidPlacement = findInvalidNotePlacement();
+    if(invalidPlacement){
+      alert(`ID ${invalidPlacement.id} の${invalidPlacement.type.toUpperCase()}は、このレーンへ配置できません。先に譜面を修正してください。`);
+      return;
+    }
+    normalizeChartTiming(chart.timing);
     const sorted = sortedNotes();
-    const out = Object.assign({}, chart, { notes: sorted });
+    const out = Object.assign({}, chart, { notes: sorted, events: (chart.events||[]).slice().sort((a,b)=>(a.tick||0)-(b.tick||0)) });
     const jsonStr = JSON.stringify(out, null, 2);
 
     if (!window.showSaveFilePicker) {
@@ -418,17 +582,15 @@
     }
 
     try {
-      if (!currentFileHandle) {
-        currentFileHandle = await window.showSaveFilePicker({
-          suggestedName: filename.endsWith('.json') ? filename : filename + '.json',
-          types: [{ description: 'JSON Files', accept: { 'application/json': ['.json'] } }]
-        });
-      }
-      const writable = await currentFileHandle.createWritable();
+      const saveHandle = await window.showSaveFilePicker({
+        suggestedName: filename.endsWith('.json') ? filename : filename + '.json',
+        types: [{ description: 'JSON Files', accept: { 'application/json': ['.json'] } }]
+      });
+      const writable = await saveHandle.createWritable();
       await writable.write(jsonStr);
       await writable.close();
       
-      const file = await currentFileHandle.getFile();
+      const file = await saveHandle.getFile();
       filename = file.name;
       el.filenameLabel.textContent = filename;
     } catch(err) {
