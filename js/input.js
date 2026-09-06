@@ -63,7 +63,7 @@
       const tick = snapTick(yToTick(y));
       const lane = getInternalLaneForNewNote(rawLane, selectedType, tick);
       if (!isValidPlacement(selectedType, lane)) return;
-      if (isNoteOccupied(tick, lane)) return;
+      if (isNoteOccupied(tick, lane, selectedType)) return;
       if(selectedType==='hold' || selectedType==='shift'){
         drag = { mode:'create-hold', type: selectedType, lane, startTick:tick, currentTick:tick+snapTicks() };
         draw();
@@ -149,9 +149,9 @@
               targetLane = [0, 5, 6].reduce((prev, curr) => Math.abs(curr - targetLane) < Math.abs(prev - targetLane) ? curr : prev);
             }
           }
-          const positionKey = notePositionKey(targetTick, targetLane);
+          const positionKey = notePositionKey(targetTick, getRuntimeVisualLane({tick:targetTick, lane:targetLane, type:n.type}));
           const targetEndTick = (n.type==='hold' || n.type==='shift') && orig.endTick!=null ? targetTick + (orig.endTick-orig.tick) : n.endTick;
-          if (isValidPlacement(n.type, targetLane) && !doesHoldCrossScramble(n.type, targetTick, targetEndTick) && !isNoteOccupied(targetTick, targetLane, selectedIds) && !occupiedPositions.has(positionKey)) {
+          if (isValidPlacement(n.type, targetLane) && !doesHoldCrossScramble(n.type, targetTick, targetEndTick) && !isNoteOccupied(targetTick, targetLane, n.type, selectedIds) && !occupiedPositions.has(positionKey)) {
             n.tick = targetTick;
             n.lane = targetLane;
             occupiedPositions.add(positionKey);
@@ -194,7 +194,7 @@
       const rect = {x0,x1,y0,y1};
       if(!drag.additive) clearSelection();
       (chart.notes||[]).forEach(n=>{
-        if(rectsIntersect(noteBounds(n), rect)) selectedIds.add(n.id);
+        if(isSelectableInRect(n, rect)) selectedIds.add(n.id);
       });
       updateInspector();
     }

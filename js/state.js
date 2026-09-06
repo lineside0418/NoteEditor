@@ -80,15 +80,18 @@
   function getLaneMapping(tick){ return getLaneMappingAfterTick(tick); }
 
   function laneMappingForNote(n){
-    rebuildLaneStates();
     return getLaneMappingBeforeTick(n.tick);
   }
   function mappingNameForType(type){ return type === 'hold' || type === 'shift' ? 'noSwap' : 'normal'; }
-  function getVisualLane(n) {
-    if (!isSwapVisualizeMode) return n.lane;
+  // Always resolves the game-time physical lane, even when visualization is off.
+  function getRuntimeVisualLane(n) {
     const mapping = laneMappingForNote(n)[mappingNameForType(n.type)];
     const visualLane = mapping.indexOf(n.lane);
     return visualLane >= 0 ? visualLane : n.lane;
+  }
+  function getVisualLane(n) {
+    if (!isSwapVisualizeMode) return n.lane;
+    return getRuntimeVisualLane(n);
   }
 
   function isValidPlacement(type, lane) {
@@ -101,6 +104,7 @@
 
   function getInternalLaneForNewNote(visualLane, type, targetTick, noteId = Number.MAX_SAFE_INTEGER) {
     if (!isSwapVisualizeMode) return visualLane;
+    rebuildLaneStates();
     const mapping = getLaneMappingBeforeTick(targetTick)[mappingNameForType(type)];
     return mapping[visualLane];
   }
@@ -128,7 +132,7 @@
     ensureTickZero(timing.timeSignatures, {numerator:4,denominator:4});
     ['bpms','scrolls','timeSignatures','stops'].forEach(key => timing[key].sort((a,b) => a.tick - b.tick));
   }
-  function validateChartForExport(){
+  function validateChartSyntax(){
     const errors = [];
     if(!chart || !chart.metadata || !chart.timing) return ['譜面データが不完全です。'];
     if(chart.metadata.laneCount !== 7) errors.push('laneCount は 7 である必要があります。');
@@ -145,19 +149,46 @@
     });
     const ids = new Set();
     const positions = new Set();
+    rebuildLaneStates();
     (chart.notes||[]).forEach(note => {
       if(!Number.isInteger(note.id) || ids.has(note.id)) errors.push(`ノーツID ${note.id} が重複または不正です。`);
       ids.add(note.id);
       if(!SUPPORTED_NOTE_TYPES.has(note.type)) errors.push(`ID ${note.id} のtype ${note.type} は未対応です。`);
       if(!Number.isInteger(note.tick) || note.tick < 0) errors.push(`ID ${note.id} のTickが不正です。`);
       if(!Number.isInteger(note.lane) || note.lane < 0 || note.lane > 6 || !isValidPlacement(note.type, note.lane)) errors.push(`ID ${note.id} のレーンが不正です。`);
-      const position = `${note.tick}:${note.lane}`;
-      if(positions.has(position)) errors.push(`Tick ${note.tick} / Lane ${note.lane+1} に重複ノーツがあります。`);
+      const visualLane = getRuntimeVisualLane(note);
+      const position = `${note.tick}:${visualLane}`;
+      if(positions.has(position)) errors.push(`Tick ${note.tick} / 実行レーン ${visualLane+1} に重複ノーツがあります。`);
       positions.add(position);
       if((note.type === 'hold' || note.type === 'shift') && (!Number.isInteger(note.endTick) || note.endTick <= note.tick)) errors.push(`ID ${note.id} の終端Tickが不正です。`);
     });
+    const longNotes = (chart.notes||[]).filter(note =>
+      (note.type === 'hold' || note.type === 'shift') &&
+      Number.isInteger(note.endTick) && note.endTick > note.tick
+    );
+    longNotes.forEach(longNote => {
+      const longVisualLane = getRuntimeVisualLane(longNote);
+      (chart.notes||[]).forEach(note => {
+        if(note.id === longNote.id || note.tick < longNote.tick || note.tick > longNote.endTick) return;
+        if(getRuntimeVisualLane(note) === longVisualLane){
+          errors.push(`ID ${longNote.id} のロングノーツ区間が ID ${note.id} と実行レーン ${longVisualLane+1} で重なっています。`);
+        }
+      });
+    });
     if(findHoldCrossingScramble()) errors.push('SCRAMBLEをまたぐHOLDまたはSHIFTがあります。');
     return [...new Set(errors)];
+  }
+  function showChartSyntaxCheck(){
+    if(!chart){
+      alert('譜面を読み込んでから構文チェックを実行してください。');
+      return;
+    }
+    const errors = validateChartSyntax();
+    if(errors.length === 0){
+      alert('構文チェック: 問題は見つかりませんでした。');
+      return;
+    }
+    alert(`構文チェック: ${errors.length} 件の問題があります。\n\n${errors.slice(0, 20).join('\n')}${errors.length > 20 ? `\nほか ${errors.length - 20} 件` : ''}\n\nこの結果は書き出しを妨げません。`);
   }
   let filename = 'chart.json';
   let laneCount = 7;
@@ -180,6 +211,7 @@
   let audioBuffer = null;
   let waveformData = null;
   let audioLoadGeneration = 0;
+  let suppressNextScrollDraw = false;
   let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   let seekBarDragging = false;
 
@@ -190,7 +222,7 @@
    'gridArea','emptyState','laneHeader','scrollWrap','gridCanvas','metaStats','noteCounts',
    'inspector','statTick','statBeat','statLane','statCount','statLength','hintBody','hintTitle',
    'transport','btnPlayPause','playbackRateSelect','timeLabel','seekBar','audioFileLabel','audioEl',
-   'metaModalOverlay','metaCancel','metaSave','settingsModalOverlay','settingsClose','btnSwapSimulator',
+   'metaModalOverlay','metaCancel','metaSave','settingsModalOverlay','settingsClose','btnSwapSimulator','btnSyntaxCheck',
    'm_id','m_title','m_artist','m_charter','m_diffName','m_diffLevel',
    'm_bpm','m_timeSigNumerator','m_timeSigDenominator','m_audioOffset','m_resolution',
    'editorMainContainer','minimapWrap','minimapCanvas'

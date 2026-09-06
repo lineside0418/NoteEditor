@@ -27,11 +27,13 @@
   el.settingsClose.addEventListener('click', closeSettingsModal);
   el.settingsModalOverlay.addEventListener('click', (e)=>{ if(e.target===el.settingsModalOverlay) closeSettingsModal(); });
   el.btnSwapSimulator.addEventListener('click', runSwapSimulator);
+  el.btnSyntaxCheck.addEventListener('click', showChartSyntaxCheck);
 
   function openSettingsModal(){
     el.swapVisualizeToggle.checked = isSwapVisualizeMode;
     el.centerSpaceToggle.checked = isCenterSpaceMode;
     el.btnSwapSimulator.disabled = !chart;
+    el.btnSyntaxCheck.disabled = !chart;
     el.settingsModalOverlay.classList.add('open');
   }
   function closeSettingsModal(){ el.settingsModalOverlay.classList.remove('open'); }
@@ -181,7 +183,13 @@
     if(chart){ resizeCanvas(); draw(); }
   }
 
-  el.scrollWrap.addEventListener('scroll', () => { draw(); });
+  el.scrollWrap.addEventListener('scroll', () => {
+    if(suppressNextScrollDraw){
+      suppressNextScrollDraw = false;
+      return;
+    }
+    draw();
+  });
   el.scrollWrap.addEventListener('wheel', (e)=>{
     if(!chart) return;
     if(e.ctrlKey || e.metaKey){

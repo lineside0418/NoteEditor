@@ -378,13 +378,13 @@
       const n = notes[i];
       if(n.type==='hold' || n.type==='shift'){
         const y1 = tickToY(n.tick), y2 = tickToY(n.endTick!=null?n.endTick:n.tick);
-        if(y>=y1-NOTE_H/2 && y<=y2+NOTE_H/2){
-          const visLane = getVisualLane(n, hitTick);
-          const cx = laneToX(visLane) + LANE_W/2;
-          if(Math.abs(x-cx) <= LANE_W/2-4){
-            const nearEnd = Math.abs(y-y2) <= 7;
-            return {note:n, zone: nearEnd?'end':'body'};
-          }
+        const nearHead = Math.abs(y-y1) <= NOTE_H/2+3;
+        const nearEnd = Math.abs(y-y2) <= NOTE_H/2+3;
+        if(!nearHead && !nearEnd) continue;
+        const visLane = getVisualLane(n, hitTick);
+        const cx = laneToX(visLane) + LANE_W/2;
+        if(Math.abs(x-cx) <= LANE_W/2-4){
+          return {note:n, zone:nearEnd ? 'end' : 'head'};
         }
       } else {
         const ny = tickToY(n.tick);
@@ -411,5 +411,15 @@
     return {x0,x1,y0,y1};
   }
   function rectsIntersect(a,b){ return a.x0<=b.x1 && a.x1>=b.x0 && a.y0<=b.y1 && a.y1>=b.y0; }
+  function isSelectableInRect(n, rect){
+    if(n.type!=='hold' && n.type!=='shift') return rectsIntersect(noteBounds(n), rect);
+    const visualLane = getVisualLane(n, n.tick);
+    const x0 = laneToX(visualLane)+6;
+    const x1 = laneToX(visualLane)+LANE_W-6;
+    const headY = tickToY(n.tick);
+    const tailY = tickToY(n.endTick!=null ? n.endTick : n.tick);
+    const endpointBounds = y => ({x0, x1, y0:y-NOTE_H/2-3, y1:y+NOTE_H/2+3});
+    return rectsIntersect(endpointBounds(headY), rect) || rectsIntersect(endpointBounds(tailY), rect);
+  }
 
   // ---------------------------------------------------------------

@@ -251,11 +251,6 @@
     if(!Number.isInteger(chart.metadata.resolution) || chart.metadata.resolution < 1) chart.metadata.resolution = 960;
     resolution = chart.metadata.resolution;
 
-    const crossingHold = findHoldCrossingScramble();
-    if(crossingHold) alert(`ID ${crossingHold.id} の${crossingHold.type.toUpperCase()}がSCRAMBLEをまたいでいます。修正するまで書き出しできません。`);
-    const invalidPlacement = findInvalidNotePlacement();
-    if(invalidPlacement) alert(`ID ${invalidPlacement.id} の${invalidPlacement.type.toUpperCase()}は、このレーンへ配置できません。修正するまで書き出しできません。`);
-
     if (audioObjectUrl) {
       URL.revokeObjectURL(audioObjectUrl);
       audioObjectUrl = null;
@@ -535,7 +530,11 @@
         const py = tickToY(curTick);
         scheduleHitSounds(preciseTime);
         const wantTop = py - el.scrollWrap.clientHeight*0.3;
-        el.scrollWrap.scrollTop = Math.max(0, wantTop);
+        const targetScrollTop = Math.max(0, wantTop);
+        if(Math.abs(el.scrollWrap.scrollTop - targetScrollTop) > 0.5){
+          suppressNextScrollDraw = true;
+          el.scrollWrap.scrollTop = targetScrollTop;
+        }
       }
       rafHandle = requestAnimationFrame(loop);
     }
@@ -548,21 +547,6 @@
   // ---------------------------------------------------------------
   async function exportChart(){
     if(!chart) return;
-    const validationErrors = validateChartForExport();
-    if(validationErrors.length){
-      alert(`書き出しできません。\n\n${validationErrors.slice(0, 10).join('\n')}${validationErrors.length > 10 ? `\nほか ${validationErrors.length - 10} 件` : ''}`);
-      return;
-    }
-    const crossingHold = findHoldCrossingScramble();
-    if(crossingHold){
-      alert(`ID ${crossingHold.id} の${crossingHold.type.toUpperCase()}がSCRAMBLEをまたいでいます。先に譜面を修正してください。`);
-      return;
-    }
-    const invalidPlacement = findInvalidNotePlacement();
-    if(invalidPlacement){
-      alert(`ID ${invalidPlacement.id} の${invalidPlacement.type.toUpperCase()}は、このレーンへ配置できません。先に譜面を修正してください。`);
-      return;
-    }
     normalizeChartTiming(chart.timing);
     const sorted = sortedNotes();
     const out = Object.assign({}, chart, { notes: sorted, events: (chart.events||[]).slice().sort((a,b)=>(a.tick||0)-(b.tick||0)) });

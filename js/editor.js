@@ -57,14 +57,21 @@
   // ---------------------------------------------------------------
   function nextId(){ let m=0; (chart.notes||[]).forEach(n=>{ if(n.id>m) m=n.id; }); return m+1; }
   function notePositionKey(tick, lane){ return `${tick}:${lane}`; }
-  function isNoteOccupied(tick, lane, ignoredIds){
-    return (chart.notes||[]).some(n => n.tick === tick && n.lane === lane && !(ignoredIds && ignoredIds.has(n.id)));
+  function isNoteOccupied(tick, lane, type, ignoredIds){
+    rebuildLaneStates();
+    const candidate = {tick, lane, type};
+    const candidateVisualLane = getRuntimeVisualLane(candidate);
+    return (chart.notes||[]).some(n =>
+      n.tick === tick &&
+      !(ignoredIds && ignoredIds.has(n.id)) &&
+      getRuntimeVisualLane(n) === candidateVisualLane
+    );
   }
 
   // flagsは使わなくなったから削除しておいたよ
   function placeNote(type, tick, lane){
     if (!isValidPlacement(type, lane)) return null;
-    if (isNoteOccupied(tick, lane)) return null;
+    if (isNoteOccupied(tick, lane, type)) return null;
     pushHistory();
     const n = { id: nextId(), tick, lane, type, size:1 };
     if(type==='hold' || type==='shift'){ n.endTick = tick + snapTicks()*MIN_HOLD_LEN_UNITS; }
@@ -105,7 +112,6 @@
     if(!drag || drag.mode!=='paste' || !drag.items) return;
     pushHistory();
     const newIds = [];
-    const occupied = new Set((chart.notes||[]).map(n => notePositionKey(n.tick, n.lane)));
     drag.items.forEach(item => {
       const t = drag.snapTick + item.dTick;
       const rawLane = getPasteDestinationLane(item, drag.lane, drag.sourceAnchorLane, drag.flipped);
@@ -114,8 +120,7 @@
       const newId = nextId();
       const l = getInternalLaneForNewNote(rawLane, item.type, t, newId);
       if (!isValidPlacement(item.type, l)) return;
-      const positionKey = notePositionKey(t, l);
-      if (occupied.has(positionKey)) return;
+      if (isNoteOccupied(t, l, item.type)) return;
       
       const n = { id: newId, tick: t, lane: l, type: item.type, size: item.size || 1 };
       if(item.dEndTick != null) {
@@ -126,7 +131,6 @@
       
       chart.notes.push(n);
       newIds.push(n.id);
-      occupied.add(positionKey);
     });
     drag = null;
     clearSelection();
@@ -218,8 +222,8 @@
         const visualLane = getVisualLane(n);
         const mirroredVisualLane = visualLane === 6 ? 6 : 5 - visualLane;
         const mirroredLane = getInternalLaneForNewNote(mirroredVisualLane, n.type, n.tick, n.id);
-        const position = notePositionKey(n.tick, mirroredLane);
-        if(isValidPlacement(n.type, mirroredLane) && !isNoteOccupied(n.tick, mirroredLane, selectedIds) && !occupied.has(position)) {
+        const position = notePositionKey(n.tick, getRuntimeVisualLane({tick:n.tick, lane:mirroredLane, type:n.type}));
+        if(isValidPlacement(n.type, mirroredLane) && !isNoteOccupied(n.tick, mirroredLane, n.type, selectedIds) && !occupied.has(position)) {
           n.lane = mirroredLane;
           occupied.add(position);
         }
