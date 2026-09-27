@@ -13,14 +13,16 @@
     };
     const bpms = sortedBpms();
     const bpmRange = bpms.length ? [...new Set(bpms.map(b=>b.bpm))].join(' → ') : '-';
+    const packageMusic = packageContext && packageContext.songdata && packageContext.songdata.music || {};
     el.metaStats.innerHTML = `
-      <div class="stat-row"><span class="k">タイトル</span><span class="v">${escapeHtml(m.title||'-')}</span></div>
-      <div class="stat-row"><span class="k">アーティスト</span><span class="v">${escapeHtml(m.artist||'-')}</span></div>
-      <div class="stat-row"><span class="k">難易度</span><span class="v">${escapeHtml((m.difficulty&&m.difficulty.name)||'-')} ${m.difficulty?m.difficulty.level:''}</span></div>
+      <div class="stat-row"><span class="k">タイトル</span><span class="v">${escapeHtml(packageMusic.title||'-')}</span></div>
+      <div class="stat-row"><span class="k">アーティスト</span><span class="v">${escapeHtml(packageMusic.artist||'-')}</span></div>
+      <div class="stat-row"><span class="k">難易度</span><span class="v">${escapeHtml((ReInverseChartFormat.difficultyInfo(selectedChartDifficulty)||{}).label||'-')} ${m.difficulty?m.difficulty.level:''}</span></div>
       <div class="stat-row"><span class="k">レーン数</span><span class="v">${laneCount}</span></div>
       <div class="stat-row"><span class="k">解像度</span><span class="v">${resolution}</span></div>
       <div class="stat-row"><span class="k">BPM</span><span class="v">${escapeHtml(bpmRange)}</span></div>
       <div class="stat-row"><span class="k">音声オフセット</span><span class="v">${(m.audio&&m.audio.offset)!=null ? m.audio.offset+' ms' : '0 ms'}</span></div>
+      <div class="stat-row"><span class="k">小節線オフセット</span><span class="v">${m.grid_offset||0}</span></div>
     `;
   }
 

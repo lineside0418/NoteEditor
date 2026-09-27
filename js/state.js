@@ -2,6 +2,10 @@
   // ---------------------------------------------------------------
   let chart = null;
 
+  // MusicPackage is the owner of song-wide metadata and of the chart path.
+  let packageContext = null;
+  let selectedChartDifficulty = "high";
+
   let isSwapVisualizeMode = false;
   let isCenterSpaceMode = false;
   let laneStateHistory = [];
@@ -123,29 +127,42 @@
     if(!entries.some(entry => entry.tick === 0)) entries.unshift({tick:0, ...defaults});
   }
   function normalizeChartTiming(timing){
-    if(!Array.isArray(timing.bpms)) timing.bpms = [];
-    if(!Array.isArray(timing.scrolls)) timing.scrolls = [];
-    if(!Array.isArray(timing.timeSignatures)) timing.timeSignatures = [];
-    if(!Array.isArray(timing.stops)) timing.stops = [];
-    ensureTickZero(timing.bpms, {bpm:120});
-    ensureTickZero(timing.scrolls, {speed:1});
-    ensureTickZero(timing.timeSignatures, {numerator:4,denominator:4});
-    ['bpms','scrolls','timeSignatures','stops'].forEach(key => timing[key].sort((a,b) => a.tick - b.tick));
+    const normalized = ReInverseChartFormat.normalizeTiming(timing);
+    Object.assign(timing, normalized);
   }
+
+  function validatePackageContext(){
+    const errors = [];
+    if(!packageContext){
+      errors.push("MusicPackageが選択されていません。");
+      return errors;
+    }
+    if(!ReInverseChartFormat.isPackageKey(packageContext.packageKey)) errors.push("package_key は小文字kebab-caseである必要があります。");
+    if(!packageContext.songdata || packageContext.songdata.format_version !== 3) errors.push("metadata/songdata.json は format_version 3 である必要があります。");
+    if(!ReInverseChartFormat.difficultyInfo(selectedChartDifficulty)) errors.push("出力難易度が不正です。");
+    return errors;
+  }
+
   function validateChartSyntax(){
     const errors = [];
     if(!chart || !chart.metadata || !chart.timing) return ['譜面データが不完全です。'];
     if(chart.metadata.laneCount !== 7) errors.push('laneCount は 7 である必要があります。');
+    if(typeof chart.metadata.charter !== 'string' || chart.metadata.charter.trim() === '') errors.push('metadata.charter は空にできません。');
+    const difficultyLevel = Number(chart.metadata.difficulty && chart.metadata.difficulty.level);
+    if(!Number.isFinite(difficultyLevel) || difficultyLevel <= 0) errors.push('metadata.difficulty.level は0より大きい必要があります。');
+    ReInverseChartFormat.legacyMetadataFields(chart.metadata).forEach(field => errors.push(`${field} は旧フィールドです。保存時に削除されます。`));
+    if(Object.prototype.hasOwnProperty.call(chart.metadata, 'grid_offset') && !ReInverseChartFormat.isFiniteInteger(chart.metadata.grid_offset)) errors.push('metadata.grid_offset は有限の整数である必要があります。');
     if(!Number.isInteger(chart.metadata.resolution) || chart.metadata.resolution < 1) errors.push('resolution は1以上の整数である必要があります。');
     const timing = chart.timing;
     const bpm0 = (timing.bpms||[]).find(b => b.tick === 0);
-    const signature0 = (timing.timeSignatures||[]).find(t => t.tick === 0);
-    const scroll0 = (timing.scrolls||[]).find(s => s.tick === 0);
     if(!bpm0 || !Number.isFinite(bpm0.bpm) || bpm0.bpm <= 0) errors.push('Tick 0の有効なBPMが必要です。');
-    if(!signature0 || !Number.isInteger(signature0.numerator) || signature0.numerator < 1 || !Number.isInteger(signature0.denominator) || signature0.denominator < 1) errors.push('Tick 0の有効な拍子が必要です。');
-    if(!scroll0 || !Number.isFinite(scroll0.speed)) errors.push('Tick 0の有効なscroll速度が必要です。');
+    // scrolls and timeSignatures are valid when empty in MusicPackages v3.
+    errors.push(...validatePackageContext());
     ['bpms','scrolls','timeSignatures','stops'].forEach(key => {
       (timing[key]||[]).forEach(entry => { if(!Number.isInteger(entry.tick) || entry.tick < 0) errors.push(`${key} に無効なTickがあります。`); });
+    });
+    (timing.timeSignatures||[]).forEach(entry => {
+      if(!Number.isInteger(entry.numerator) || entry.numerator < 1 || !Number.isInteger(entry.denominator) || entry.denominator < 1) errors.push('timeSignatures の分子・分母は正の整数である必要があります。');
     });
     const ids = new Set();
     const positions = new Set();
@@ -217,14 +234,14 @@
 
   // 削除されたフィールド (m_subtitle, m_genre, m_previewStart, m_previewDuration) をリストから除外
   const el = {};
-  ['fileInput','btnLoad','btnLoad2','btnNew','btnExport','btnMeta','btnAudio','audioInput',
-   'btnUndo','btnRedo','snapSelect','btnSettings','swapVisualizeToggle','centerSpaceToggle','zoomIn','zoomOut','zoomLabel','filenameLabel',
-   'gridArea','emptyState','laneHeader','scrollWrap','gridCanvas','metaStats','noteCounts',
+  ['fileInput','btnLoad','btnLoad2','btnNew','btnPackage','btnExport','btnDownload','btnMeta','btnAudio','audioInput',
+   'btnUndo','btnRedo','snapSelect','btnSettings','swapVisualizeToggle','centerSpaceToggle','zoomIn','zoomOut','zoomLabel','filenameLabel','packageDifficulty',
+   'gridArea','emptyState','laneHeader','scrollWrap','gridCanvas','metaStats','noteCounts','packageLabel',
    'inspector','statTick','statBeat','statLane','statCount','statLength','hintBody','hintTitle',
    'transport','btnPlayPause','playbackRateSelect','timeLabel','seekBar','audioFileLabel','audioEl',
    'metaModalOverlay','metaCancel','metaSave','settingsModalOverlay','settingsClose','btnSwapSimulator','btnSyntaxCheck',
-   'm_id','m_title','m_artist','m_charter','m_diffName','m_diffLevel',
-   'm_bpm','m_timeSigNumerator','m_timeSigDenominator','m_audioOffset','m_resolution',
+   'm_charter','m_diffLevel',
+   'm_bpm','m_timeSigNumerator','m_timeSigDenominator','m_audioOffset','m_gridOffset','m_resolution',
    'editorMainContainer','minimapWrap','minimapCanvas'
   ].forEach(id=>{ el[id] = document.getElementById(id); });
   

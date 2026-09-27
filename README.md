@@ -101,6 +101,7 @@ JSONは変更せず、ゲーム実行時のレーン入れ替えを表示に反�
     "charter": "",
     "difficulty": { "name": "Low", "level": 1.0 },
     "audio": { "offset": 0 },
+    "grid_offset": 0,
     "laneCount": 7,
     "resolution": 960
   },
@@ -116,9 +117,10 @@ JSONは変更せず、ゲーム実行時のレーン入れ替えを表示に反�
 ```
 
 - `metadata.audio`は`offset`（ミリ秒）のみです。`audio.file`と`jacket`は使用しません。
+- `metadata.grid_offset`は小節線だけの位相を、拍子の分母 `1/x` 音符単位で動かす有限整数です。省略時は `0` です。4/4では `-1` が4分音符1つ前、`1` が4分音符1つ後になり、音源・判定・ノーツTickには影響しません。
 - `laneCount`は常に7です。
 - Tick 0にはBPM、scroll、拍子が必要です。読み込み時に不足している場合は既定値を補います。
-- メタデータダイアログではTick 0のBPM、拍子、音声offset、resolutionを設定できます。難易度数値は小数第2位に丸め、入力欄では`00.00`形式で表示します（JSONの数値仕様上、末尾の`0`自体は保存時に省略される場合があります）。
+- メタデータダイアログではTick 0のBPM、拍子、音声offset、小節線オフセット、resolutionを設定できます。小節線オフセットの変更は保存直後にCanvasへプレビューされます。難易度数値は小数第2位に丸め、入力欄では`00.00`形式で表示します（JSONの数値仕様上、末尾の`0`自体は保存時に省略される場合があります）。
 - 設定モーダルの「構文チェック」では、レーン範囲、ノーツ種別、ID、重複、Hold/Shiftの終端、Scramble跨ぎ、Tick 0のタイミング情報を確認できます。チェック結果は情報表示のみで、書き出しを止めません。
 
 ## 旧譜面の互換性
@@ -141,3 +143,23 @@ js/input.js            マウス操作
 js/main.js             キーボード・UIイベント
 windows_app/           Electron版の設定
 ```
+
+## MusicPackages 出力
+
+曲全体の情報は MusicPackage が所有し、譜面JSONには曲ID・タイトル・アーティスト・難易度名を保存しません。
+
+`<package_key>` を選択してから、LOW / MID / HIGH / SP を選び、次のいずれかへ保存します。
+
+```text
+Assets/public/MusicPackages/<package_key>/charts/
+  low.json
+  mid.json
+  high.json
+  sp.json
+```
+
+- パッケージ保存は `metadata/songdata.json` の `format_version: 3` と小文字kebab-caseの package_key を検証します。
+- 曲名・アーティストは `metadata/songdata.json` の参照表示であり、このエディタは音源・ジャケット・songdata.jsonを変更しません。
+- 譜面には `metadata.charter`、`metadata.difficulty.level`、`metadata.audio.offset`、`metadata.grid_offset`、タイミング、ノーツ、イベントだけを保存します。
+- `metadata.id`、`metadata.title`、`metadata.artist`、`metadata.difficulty.name` は新規保存時に削除されます。
+- Unityへ戻ったら再読み込みし、反映されない場合は `Re-Inverse/Rebuild MusicPackages Catalog` を実行してください。

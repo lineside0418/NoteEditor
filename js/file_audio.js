@@ -207,16 +207,17 @@
     }
     notes.sort((a,b) => a.tick - b.tick || a.lane - b.lane);
     notes.forEach((note, index) => { note.id = index + 1; });
-    return {version:1, metadata, timing, notes, events:[]};
+    return ReInverseChartFormat.createChartExport({version:1, metadata, timing, notes, events:[]});
   }
 
   function createNewChart(){
     const data = {
       version: 1,
       metadata: {
-        id: "001", title: "無題の譜面", artist: "", charter: "",
-        difficulty: { name: "Low", level: 1 },
+        charter: "",
+        difficulty: { level: 1 },
         audio: { offset: 0 },
+        grid_offset: 0,
         laneCount: 7, resolution: 960
       },
       timing: {
@@ -239,16 +240,17 @@
     normalizeChartTiming(data.timing);
     if(!Array.isArray(data.events)) data.events = [];
     if(!Number.isInteger(data.version)) data.version = 1;
-    data.metadata.audio = { offset: Number.isFinite(Number(data.metadata.audio && data.metadata.audio.offset)) ? Number(data.metadata.audio.offset) : 0 };
-    delete data.metadata.jacket;
-    if(!data.metadata.difficulty) data.metadata.difficulty = {name:'Low', level:1};
-
+    const normalizedMetadata = ReInverseChartFormat.normalizeMetadata(data.metadata);
+    data.metadata.charter = normalizedMetadata.charter;
+    data.metadata.audio = normalizedMetadata.audio;
+    data.metadata.difficulty = Object.assign({}, data.metadata.difficulty || {}, normalizedMetadata.difficulty);
+    data.metadata.grid_offset = normalizedMetadata.grid_offset;
     data.metadata.laneCount = 7;
+    data.metadata.resolution = normalizedMetadata.resolution;
 
     chart = data;
     filename = name || 'chart.json';
     laneCount = 7;
-    if(!Number.isInteger(chart.metadata.resolution) || chart.metadata.resolution < 1) chart.metadata.resolution = 960;
     resolution = chart.metadata.resolution;
 
     if (audioObjectUrl) {
@@ -281,7 +283,8 @@
     updateHistoryButtons();
 
     el.filenameLabel.textContent = filename;
-    el.btnExport.disabled = false;
+    el.btnExport.disabled = !packageContext;
+    el.btnDownload.disabled = false;
     el.btnMeta.disabled = false;
     el.btnAudio.disabled = false;
     el.btnSettings.disabled = false;
@@ -329,14 +332,11 @@
   function openMetaModal(){
     if(!chart) return;
     const m = chart.metadata;
-    el.m_id.value = m.id||'';
-    el.m_title.value = m.title||'';
-    el.m_artist.value = m.artist||'';
     el.m_charter.value = m.charter||'';
-    el.m_diffName.value = (m.difficulty&&m.difficulty.name)||'';
     const difficultyLevel = Number(m.difficulty && m.difficulty.level);
     el.m_diffLevel.value = Number.isFinite(difficultyLevel) ? difficultyLevel.toFixed(2) : '0.00';
     el.m_audioOffset.value = (m.audio&&m.audio.offset!=null)?m.audio.offset:0;
+    el.m_gridOffset.value = ReInverseChartFormat.normalizeGridOffset(m.grid_offset);
     const bpm0 = (chart.timing.bpms||[]).find(b=>b.tick===0) || {bpm:120};
     const timeSignature0 = (chart.timing.timeSignatures||[]).find(t=>t.tick===0) || {numerator:4,denominator:4};
     el.m_bpm.value = bpm0.bpm;
@@ -355,17 +355,23 @@
     const numerator = parseInt(el.m_timeSigNumerator.value,10);
     const denominator = parseInt(el.m_timeSigDenominator.value,10);
     const difficultyLevel = parseFloat(el.m_diffLevel.value);
+    const gridOffsetInput = el.m_gridOffset.value.trim();
+    const gridOffset = gridOffsetInput === '' ? 0 : Number(gridOffsetInput);
     if(!Number.isInteger(newResolution) || newResolution<1 || !Number.isFinite(bpm) || bpm<=0 || !Number.isInteger(numerator) || numerator<1 || !Number.isInteger(denominator) || denominator<1 || !Number.isFinite(difficultyLevel) || difficultyLevel<0){
       alert('resolution、BPM、拍子には正の数を入力してください。');
       return;
     }
+    if(!Number.isInteger(gridOffset)){
+      alert('小節線オフセットは整数で入力してください。空欄は 0 として保存します。');
+      return;
+    }
 
-    chart.metadata.id = el.m_id.value;
-    chart.metadata.title = el.m_title.value;
-    chart.metadata.artist = el.m_artist.value;
-    chart.metadata.charter = el.m_charter.value;
-    chart.metadata.difficulty = { name: el.m_diffName.value, level: Math.round(difficultyLevel * 100) / 100 };
+    chart.metadata.charter = el.m_charter.value.trim();
+    chart.metadata.difficulty = Object.assign({}, chart.metadata.difficulty, { level: Math.round(difficultyLevel * 100) / 100 });
     chart.metadata.audio = { offset: parseFloat(el.m_audioOffset.value)||0 };
+    chart.metadata.grid_offset = gridOffset;
+    delete chart.metadata.id; delete chart.metadata.title; delete chart.metadata.artist;
+    if(chart.metadata.difficulty) delete chart.metadata.difficulty.name;
     delete chart.metadata.jacket;
     chart.metadata.laneCount = 7;
     chart.metadata.resolution = newResolution;
@@ -545,39 +551,22 @@
   // ---------------------------------------------------------------
   // Export
   // ---------------------------------------------------------------
-  async function exportChart(){
-    if(!chart) return;
-    normalizeChartTiming(chart.timing);
-    const sorted = sortedNotes();
-    const out = Object.assign({}, chart, { notes: sorted, events: (chart.events||[]).slice().sort((a,b)=>(a.tick||0)-(b.tick||0)) });
-    const jsonStr = JSON.stringify(out, null, 2);
+  function chartExportJson(){ normalizeChartTiming(chart.timing); return JSON.stringify(ReInverseChartFormat.createChartExport(chart), null, 2); }
 
-    if (!window.showSaveFilePicker) {
-      const blob = new Blob([jsonStr], {type:'application/json'});
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = filename.endsWith('.json') ? filename : filename+'.json';
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      URL.revokeObjectURL(url);
-      return;
-    }
-
-    try {
-      const saveHandle = await window.showSaveFilePicker({
-        suggestedName: filename.endsWith('.json') ? filename : filename + '.json',
-        types: [{ description: 'JSON Files', accept: { 'application/json': ['.json'] } }]
-      });
-      const writable = await saveHandle.createWritable();
-      await writable.write(jsonStr);
-      await writable.close();
-      
-      const file = await saveHandle.getFile();
-      filename = file.name;
-      el.filenameLabel.textContent = filename;
-    } catch(err) {
-      if (err.name !== 'AbortError') alert('保存に失敗しました: ' + err.message);
-    }
+  function updatePackageUi(){
+    const info=ReInverseChartFormat.difficultyInfo(selectedChartDifficulty), suffix=info?' / charts/'+info.fileName:'';
+    const music=packageContext&&packageContext.songdata&&packageContext.songdata.music||{};
+    el.packageLabel.textContent=packageContext?packageContext.packageKey+suffix+(music.title?' ('+music.title+')':''):'MusicPackage未選択';
+    if(chart){ el.btnExport.disabled=!packageContext; updateMetaStats(); }
   }
+  async function selectMusicPackage(){
+    if(!window.showDirectoryPicker){ alert('MusicPackageへの直接保存は File System Access API 対応ブラウザで実行してください。'); return; }
+    try { const rootHandle=await window.showDirectoryPicker({mode:'readwrite'}); const metadataHandle=await rootHandle.getDirectoryHandle('metadata'); const songdataHandle=await metadataHandle.getFileHandle('songdata.json'); packageContext={rootHandle,packageKey:rootHandle.name,songdata:JSON.parse(await (await songdataHandle.getFile()).text())}; updatePackageUi(); const errors=validatePackageContext(); if(errors.length)alert('MusicPackageの検証結果: '+errors.join(' / ')); } catch(err) { if(err&&err.name!=='AbortError')alert('MusicPackageの選択に失敗しました: '+err.message); }
+  }
+  async function exportChart(){
+    if(!chart)return;const packageErrors=validatePackageContext();if(packageErrors.length){alert('MusicPackageへ保存できません: '+packageErrors.join(' / '));return;}
+    const issues=validateChartSyntax().filter(x=>!x.startsWith('MusicPackage')&&!x.startsWith('package_key')&&!x.startsWith('metadata/songdata')&&!x.startsWith('出力難易度'));
+    if(issues.length&&!confirm('構文チェックで '+issues.length+' 件の問題があります。 '+issues.slice(0,10).join(' / ')+' 旧フィールドは保存時に削除されます。このまま保存しますか？'))return;
+    try {const info=ReInverseChartFormat.difficultyInfo(selectedChartDifficulty),charts=await packageContext.rootHandle.getDirectoryHandle('charts',{create:true}),file=await charts.getFileHandle(info.fileName,{create:true}),writable=await file.createWritable();await writable.write(chartExportJson());await writable.close();filename=info.fileName;el.filenameLabel.textContent=filename;alert('charts/'+info.fileName+' へ保存しました。Unityの再読み込み後、カタログに反映されない場合は Re-Inverse/Rebuild MusicPackages Catalog を実行してください。');}catch(err){if(err&&err.name!=='AbortError')alert('MusicPackageへの保存に失敗しました: '+err.message);}
+  }
+  function downloadChart(){if(!chart)return;const info=ReInverseChartFormat.difficultyInfo(selectedChartDifficulty),blob=new Blob([chartExportJson()],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=info?info.fileName:'chart.json';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);alert('JSONをダウンロードしました。対象MusicPackageの charts/ に配置してください。');}

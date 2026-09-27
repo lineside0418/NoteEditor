@@ -135,6 +135,7 @@
   }
 </style>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+<script src="js/chart_format.js"></script>
 </head>
 <body>
 
@@ -146,6 +147,8 @@
   <label class="upload-btn">
     ファイルを選択
     <input type="file" id="fileInput">
+  <p class="description">出力難易度（ファイル名）</p>
+  <select id="difficultySelect"><option value="low">LOW → low.json</option><option value="mid">MID → mid.json</option><option value="high" selected>HIGH → high.json</option><option value="sp">SP → sp.json</option></select>
   </label>
   
   <div class="status-message" id="statusMessage"></div>
@@ -267,7 +270,7 @@
         const content = await mcFile.async('string');
         const oldData = JSON.parse(content);
         const newData = convertToRICF1(oldData);
-        downloadJson(newData, file.name.replace(/\.mcz$/i, '_ricf1.json'));
+        downloadJson(newData, ReInverseChartFormat.difficultyInfo(document.getElementById('difficultySelect').value).fileName);
         showMessage('MCZの変換が完了しました！');
       } else {
         // Normal JSON/TXT path
@@ -276,7 +279,7 @@
           try {
             const oldData = JSON.parse(e.target.result);
             const newData = convertToRICF1(oldData);
-            downloadJson(newData, file.name.replace(/\.(json|txt)$/i, '_ricf1.json'));
+            downloadJson(newData, ReInverseChartFormat.difficultyInfo(document.getElementById('difficultySelect').value).fileName);
             showMessage('変換が完了しました！');
           } catch (err) {
             showMessage('変換エラー: ' + err.message, true);
@@ -431,13 +434,7 @@
       n.id = idCounter++;
     });
 
-    return {
-      version: 1,
-      metadata: metadata,
-      timing: timing,
-      notes: notes,
-      events: []
-    };
+    return ReInverseChartFormat.createChartExport({ version: 1, metadata: metadata, timing: timing, notes: notes, events: [] });
   }
 
   // JSONをダウンロードさせる処理

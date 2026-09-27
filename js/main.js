@@ -11,7 +11,10 @@
   el.btnLoad2.addEventListener('click', openChartFile);
   el.fileInput.addEventListener('change', onFileChosen);
   el.btnNew.addEventListener('click', createNewChart);
+  el.btnPackage.addEventListener('click', selectMusicPackage);
   el.btnExport.addEventListener('click', exportChart);
+  el.btnDownload.addEventListener('click', downloadChart);
+  el.packageDifficulty.addEventListener('change', ()=>{ selectedChartDifficulty = el.packageDifficulty.value; updatePackageUi(); });
   el.btnMeta.addEventListener('click', openMetaModal);
   el.btnAudio.addEventListener('click', ()=>el.audioInput.click());
   el.audioInput.addEventListener('change', onAudioChosen);

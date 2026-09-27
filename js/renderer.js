@@ -1,18 +1,43 @@
 // Grid / bpm drawing
   // ---------------------------------------------------------------
-  function ticksPerBeatAt(numerator, denominator){ return resolution * (4/denominator); }
+  function ticksPerBeatAt(numerator, denominator){ return ReInverseChartFormat.ticksPerDenominatorNote(resolution, denominator); }
+
+  function validTimeSignature(entry){
+    return entry && Number.isInteger(entry.tick) && entry.tick >= 0 &&
+      Number.isInteger(entry.numerator) && entry.numerator > 0 &&
+      Number.isInteger(entry.denominator) && entry.denominator > 0;
+  }
+
+  function timeSignatureSegments(maxTick){
+    const events = (chart.timing.timeSignatures || []).filter(validTimeSignature)
+      .slice().sort((a,b) => a.tick - b.tick);
+    const segments = [];
+    let startTick = 0;
+    let signature = { numerator: 4, denominator: 4 };
+
+    events.forEach(event => {
+      if(event.tick === 0){
+        signature = event;
+        return;
+      }
+      if(event.tick <= startTick || event.tick >= maxTick) return;
+      segments.push({ startTick, endTick: event.tick, ...signature });
+      startTick = event.tick;
+      signature = event;
+    });
+    if(startTick < maxTick) segments.push({ startTick, endTick: maxTick, ...signature });
+    return segments;
+  }
 
   function drawGridLines(maxTick, viewTop, viewBottom){
-    const ts = (chart.timing.timeSignatures||[{tick:0,numerator:4,denominator:4}]).slice().sort((a,b)=>a.tick-b.tick);
-    if(ts.length===0) ts.push({tick:0,numerator:4,denominator:4});
     const w = contentWidth();
+    const gridOffset = ReInverseChartFormat.normalizeGridOffset(chart.metadata && chart.metadata.grid_offset);
 
-    for(let i=0;i<ts.length;i++){
-      const segStart = ts[i].tick;
-      const segEnd = (i+1<ts.length) ? ts[i+1].tick : maxTick;
-      const beatTicks = ticksPerBeatAt(ts[i].numerator, ts[i].denominator);
-      const measureTicks = beatTicks * ts[i].numerator;
-      if(measureTicks<=0) continue;
+    timeSignatureSegments(maxTick).forEach(segment => {
+      const { startTick: segStart, endTick: segEnd, numerator, denominator } = segment;
+      const beatTicks = ticksPerBeatAt(numerator, denominator);
+      const measureTicks = beatTicks * numerator;
+      if(measureTicks<=0) return;
 
       ctx.strokeStyle = getVar('--grid-beat');
       ctx.lineWidth = 1;
@@ -26,7 +51,8 @@
       ctx.fillStyle = getVar('--text-faint');
       ctx.font = '10px '+getVar('--mono');
       let measureNo = 1;
-      for(let t=segStart; t<segEnd; t+=measureTicks){
+      const firstMeasureTick = ReInverseChartFormat.firstBarTick(segStart, numerator, denominator, resolution, gridOffset);
+      for(let t=firstMeasureTick; t<segEnd; t+=measureTicks){
         const y = Math.round(tickToY(t))+0.5;
         if (y < viewTop) { measureNo++; continue; }
         if (y > viewBottom) break;
@@ -35,7 +61,7 @@
         ctx.fillText(String(measureNo), 8, y+3);
         measureNo++;
       }
-    }
+    });
 
     ctx.strokeStyle = getVar('--panel-border');
     ctx.lineWidth = 1;
