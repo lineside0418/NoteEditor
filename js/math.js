@@ -1,8 +1,9 @@
 // Coordinate helpers
   // ---------------------------------------------------------------
+  let verticalExtentTick = 0;
   function pxPerTick(){ return BASE_PX_PER_TICK * zoom; }
-  function tickToY(tick){ return tick * pxPerTick(); }
-  function yToTick(y){ return y / pxPerTick(); }
+  function tickToY(tick){ return (isTimelineInverted ? verticalExtentTick - tick : tick) * pxPerTick(); }
+  function yToTick(y){ return isTimelineInverted ? verticalExtentTick - y / pxPerTick() : y / pxPerTick(); }
   function laneToX(lane){
     if (lane === laneCount) return RULER_W + laneCount * LANE_W;
     if (isCenterSpaceMode) {
@@ -41,12 +42,13 @@
     // 既存のノーツやタイミングイベントから最大Tickを取得
     (chart.notes||[]).forEach(n=>{ m = Math.max(m, n.tick||0, n.endTick||0); });
     (chart.timing.bpms||[]).forEach(b=>m=Math.max(m,b.tick||0));
+    (chart.timing.scrolls||[]).forEach(s=>m=Math.max(m,s.tick||0));
     (chart.timing.timeSignatures||[]).forEach(t=>m=Math.max(m,t.tick||0));
 
     // 音声が読み込まれている場合は、曲の総尺そのものから最大Tickを算出してキャンバスを伸ばす
     const durationSec = audioDurationSec();
     if (durationSec > 0) {
-      const audioMaxTick = secondsToTick(durationSec);
+      const audioMaxTick = tickForAudioTime(durationSec);
       m = Math.max(m, audioMaxTick);
     }
 
@@ -54,7 +56,7 @@
     // これにより、音声未読み込み状態でもスクロールして無限にノーツを配置し続けられる
     return m + (resolution * 4 * 20);
   }
-  function contentHeight(){ return tickToY(maxContentTick()); }
+  function contentHeight(){ return verticalExtentTick * pxPerTick(); }
   function contentWidth(){ return RULER_W + laneCount*LANE_W + 150; } // +150 for waveform space
 
   let dummy = null;
@@ -78,9 +80,12 @@
     }
     
     const w = contentWidth();
+    const previousHeight = contentHeight();
+    verticalExtentTick = maxContentTick();
     const h = Math.max(400, contentHeight());
     const viewH = el.scrollWrap.clientHeight || 800;
     dummy.style.height = h + 'px';
+    if(isTimelineInverted && previousHeight > 0) el.scrollWrap.scrollTop += h - Math.max(400, previousHeight);
     
     const dpr = window.devicePixelRatio || 1;
     el.gridCanvas.style.width = w+'px';
@@ -93,7 +98,12 @@
   // ---------------------------------------------------------------
   // Tick <-> time (seconds) conversion, using BPM segments
   // ---------------------------------------------------------------
-  function sortedBpms(){ return (chart.timing.bpms||[{tick:0,bpm:120}]).slice().sort((a,b)=>a.tick-b.tick); }
+  function sortedBpms(){
+    const entries = (chart.timing.bpms||[]).filter(e => e && Number.isInteger(e.tick) && e.tick >= 0 && Number.isFinite(e.bpm) && e.bpm > 0)
+      .slice().sort((a,b)=>a.tick-b.tick);
+    if(!entries.some(e=>e.tick===0)) entries.unshift({tick:0,bpm:120});
+    return entries;
+  }
 
   function tickToSeconds(targetTick){
     const bpms = sortedBpms();
@@ -130,5 +140,22 @@
   function audioOffsetSec(){ return ((chart.metadata.audio && chart.metadata.audio.offset) || 0)/1000; }
   function audioTimeForTick(tick){ return tickToSeconds(tick) + audioOffsetSec(); }
   function tickForAudioTime(sec){ return secondsToTick(sec - audioOffsetSec()); }
+
+  // The integral is measured in chart seconds. BPM changes affect the event
+  // times, while Scroll changes only the distance travelled in the preview.
+  function visualTimeAtTick(tick){
+    const targetSec = tickToSeconds(tick);
+    const events = (chart.timing.scrolls || []).filter(e => Number.isInteger(e.tick) && e.tick >= 0 && Number.isFinite(e.speed) && e.speed > 0)
+      .slice().sort((a,b)=>a.tick-b.tick);
+    let previousSec = 0, speed = 1, visual = 0;
+    for(const event of events){
+      const eventSec = tickToSeconds(event.tick);
+      if(eventSec > targetSec) break;
+      visual += (eventSec - previousSec) * speed;
+      previousSec = eventSec;
+      speed = event.speed;
+    }
+    return visual + (targetSec - previousSec) * speed;
+  }
 
   // ---------------------------------------------------------------

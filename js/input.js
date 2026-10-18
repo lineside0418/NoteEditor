@@ -8,17 +8,19 @@
 
   el.gridCanvas.addEventListener('mousedown', (e)=>{
     if(e.button!==0) return;
+    const x=e.offsetX, y=e.offsetY + (el.scrollWrap ? el.scrollWrap.scrollTop : 0);
+    const waveformLeft = laneToX(laneCount) + 30;
+    if(x >= waveformLeft && x <= waveformLeft + 80){
+      seekAudioToTick(yToTick(y));
+      return;
+    }
     if(drag && drag.mode === 'paste') {
       commitPaste();
       return;
     }
-    const x=e.offsetX, y=e.offsetY + (el.scrollWrap ? el.scrollWrap.scrollTop : 0);
-
     if(x < RULER_W){
       if(audio.src){
-        const t = yToTick(y);
-        audio.currentTime = Math.max(0, audioTimeForTick(t));
-        draw();
+        seekAudioToTick(yToTick(y));
       }
       return;
     }
@@ -95,7 +97,7 @@
     const withinX = x>=0 && x<=rect.width;
     const withinY = localY>=0 && localY<=rect.height;
 
-    if(withinX && withinY){
+    if(withinX && withinY && x >= RULER_W && x < laneToX(laneCount)){
       const rawLane = xToLane(x);
       const rawTick = yToTick(y);
       const snapped = snapTick(rawTick);

@@ -8,6 +8,7 @@
 
   let isSwapVisualizeMode = false;
   let isCenterSpaceMode = false;
+  let isTimelineInverted = false;
   let laneStateHistory = [];
   const SUPPORTED_NOTE_TYPES = new Set(['tap','hold','trace','swap','shift','scramble']);
 
@@ -156,6 +157,7 @@
     const timing = chart.timing;
     const bpm0 = (timing.bpms||[]).find(b => b.tick === 0);
     if(!bpm0 || !Number.isFinite(bpm0.bpm) || bpm0.bpm <= 0) errors.push('Tick 0の有効なBPMが必要です。');
+    errors.push(...validateTimingEvents());
     // scrolls and timeSignatures are valid when empty in MusicPackages v3.
     errors.push(...validatePackageContext());
     ['bpms','scrolls','timeSignatures','stops'].forEach(key => {
@@ -195,6 +197,22 @@
     if(findHoldCrossingScramble()) errors.push('SCRAMBLEをまたぐHOLDまたはSHIFTがあります。');
     return [...new Set(errors)];
   }
+  function validateTimingEvents(){
+    const errors = [];
+    if(!chart || !chart.timing) return errors;
+    for(const [key, valueKey] of [['bpms','bpm'], ['scrolls','speed']]){
+      const seen = new Set();
+      for(const entry of (chart.timing[key] || [])){
+        if(!entry || !Number.isInteger(entry.tick) || entry.tick < 0){ errors.push(`${key} に無効なTickがあります。`); continue; }
+        if(seen.has(entry.tick)) errors.push(`${key} の Tick ${entry.tick} が重複しています。`);
+        seen.add(entry.tick);
+        if(!Number.isFinite(entry[valueKey]) || entry[valueKey] <= 0) errors.push(`${key} の Tick ${entry.tick} の値は0より大きい有限数である必要があります。`);
+      }
+      if(key === 'bpms' && !seen.has(0)) errors.push('Tick 0のBPMが必要です。');
+    }
+    if(!Number.isInteger(chart.metadata.resolution) || chart.metadata.resolution <= 0) errors.push('resolution は正の整数である必要があります。');
+    return [...new Set(errors)];
+  }
   function showChartSyntaxCheck(){
     if(!chart){
       alert('譜面を読み込んでから構文チェックを実行してください。');
@@ -231,14 +249,17 @@
   let suppressNextScrollDraw = false;
   let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   let seekBarDragging = false;
+  let previewRafHandle = null;
 
   // 削除されたフィールド (m_subtitle, m_genre, m_previewStart, m_previewDuration) をリストから除外
   const el = {};
   ['fileInput','btnLoad','btnLoad2','btnNew','btnPackage','btnExport','btnDownload','btnMeta','btnAudio','audioInput',
-   'btnUndo','btnRedo','snapSelect','btnSettings','swapVisualizeToggle','centerSpaceToggle','zoomIn','zoomOut','zoomLabel','filenameLabel','packageDifficulty',
+   'btnUndo','btnRedo','snapSelect','btnSettings','swapVisualizeToggle','centerSpaceToggle','timelineInvertToggle','zoomIn','zoomOut','zoomLabel','filenameLabel','packageDifficulty',
    'gridArea','emptyState','laneHeader','scrollWrap','gridCanvas','metaStats','noteCounts','packageLabel',
    'inspector','statTick','statBeat','statLane','statCount','statLength','hintBody','hintTitle',
-   'transport','btnPlayPause','playbackRateSelect','timeLabel','seekBar','audioFileLabel','audioEl',
+   'transport','btnPlayPause','playbackRateSelect','timeLabel','seekBar','audioFileLabel','audioEl','btnTiming','btnPreview',
+   'timingModalOverlay','timingRows','timingAddBpm','timingAddScroll','timingCancel','timingSave',
+   'previewModalOverlay','previewCanvas','previewClose',
    'metaModalOverlay','metaCancel','metaSave','settingsModalOverlay','settingsClose','btnSwapSimulator','btnSyntaxCheck',
    'm_charter','m_diffLevel',
    'm_bpm','m_timeSigNumerator','m_timeSigDenominator','m_audioOffset','m_gridOffset','m_resolution',

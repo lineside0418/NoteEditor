@@ -240,18 +240,19 @@
     normalizeChartTiming(data.timing);
     if(!Array.isArray(data.events)) data.events = [];
     if(!Number.isInteger(data.version)) data.version = 1;
+    const rawResolution = data.metadata.resolution;
     const normalizedMetadata = ReInverseChartFormat.normalizeMetadata(data.metadata);
     data.metadata.charter = normalizedMetadata.charter;
     data.metadata.audio = normalizedMetadata.audio;
     data.metadata.difficulty = Object.assign({}, data.metadata.difficulty || {}, normalizedMetadata.difficulty);
     data.metadata.grid_offset = normalizedMetadata.grid_offset;
     data.metadata.laneCount = 7;
-    data.metadata.resolution = normalizedMetadata.resolution;
+    data.metadata.resolution = rawResolution;
 
     chart = data;
     filename = name || 'chart.json';
     laneCount = 7;
-    resolution = chart.metadata.resolution;
+    resolution = Number.isInteger(rawResolution) && rawResolution > 0 ? rawResolution : 960;
 
     if (audioObjectUrl) {
       URL.revokeObjectURL(audioObjectUrl);
@@ -286,6 +287,8 @@
     el.btnExport.disabled = !packageContext;
     el.btnDownload.disabled = false;
     el.btnMeta.disabled = false;
+    el.btnTiming.disabled = false;
+    el.btnPreview.disabled = false;
     el.btnAudio.disabled = false;
     el.btnSettings.disabled = false;
     el.emptyState.style.display = 'none';
@@ -294,6 +297,7 @@
 
     buildLaneHeader();
     resizeCanvas();
+    el.scrollWrap.scrollTop = isTimelineInverted ? Math.max(0, contentHeight() - el.scrollWrap.clientHeight) : 0;
     draw();
     updateMetaStats();
     updateNoteCounts();
@@ -366,6 +370,7 @@
       return;
     }
 
+    pushHistory();
     chart.metadata.charter = el.m_charter.value.trim();
     chart.metadata.difficulty = Object.assign({}, chart.metadata.difficulty, { level: Math.round(difficultyLevel * 100) / 100 });
     chart.metadata.audio = { offset: parseFloat(el.m_audioOffset.value)||0 };
@@ -508,6 +513,8 @@
     if(!audio.src) return;
     audio.currentTime = parseFloat(el.seekBar.value)/100;
     currentAudioTime = audio.currentTime;
+    nextHitSoundIndex = sortedNotes().findIndex(n => audioTimeForTick(n.tick) >= currentAudioTime);
+    if(nextHitSoundIndex < 0) nextHitSoundIndex = (chart && chart.notes || []).length;
     updateTimeLabel();
     draw();
   });
@@ -520,6 +527,19 @@
   }
   function updateTimeLabel(){
     el.timeLabel.textContent = fmtTime(audio.currentTime)+' / '+fmtTime(audio.duration||0);
+  }
+  function seekAudioToTick(tick){
+    if(!audio.src || !Number.isFinite(audio.duration)) return;
+    const time = Math.max(0, Math.min(audio.duration, audioTimeForTick(Math.max(0,tick))));
+    audio.currentTime = time;
+    currentAudioTime = time;
+    el.seekBar.value = String(Math.floor(time * 100));
+    nextHitSoundIndex = sortedNotes().findIndex(n => audioTimeForTick(n.tick) >= time);
+    if(nextHitSoundIndex < 0) nextHitSoundIndex = (chart.notes || []).length;
+    lastHitSoundTime = time;
+    syncAudioContext();
+    updateTimeLabel();
+    draw();
   }
 
   function startRaf(){
@@ -535,7 +555,7 @@
         const curTick = tickForAudioTime(preciseTime);
         const py = tickToY(curTick);
         scheduleHitSounds(preciseTime);
-        const wantTop = py - el.scrollWrap.clientHeight*0.3;
+        const wantTop = py - el.scrollWrap.clientHeight*(isTimelineInverted ? 0.7 : 0.3);
         const targetScrollTop = Math.max(0, wantTop);
         if(Math.abs(el.scrollWrap.scrollTop - targetScrollTop) > 0.5){
           suppressNextScrollDraw = true;
@@ -564,9 +584,10 @@
     try { const rootHandle=await window.showDirectoryPicker({mode:'readwrite'}); const metadataHandle=await rootHandle.getDirectoryHandle('metadata'); const songdataHandle=await metadataHandle.getFileHandle('songdata.json'); packageContext={rootHandle,packageKey:rootHandle.name,songdata:JSON.parse(await (await songdataHandle.getFile()).text())}; updatePackageUi(); const errors=validatePackageContext(); if(errors.length)alert('MusicPackageの検証結果: '+errors.join(' / ')); } catch(err) { if(err&&err.name!=='AbortError')alert('MusicPackageの選択に失敗しました: '+err.message); }
   }
   async function exportChart(){
-    if(!chart)return;const packageErrors=validatePackageContext();if(packageErrors.length){alert('MusicPackageへ保存できません: '+packageErrors.join(' / '));return;}
+    if(!chart)return;const timingErrors=validateTimingEvents();if(timingErrors.length){alert('タイミングを修正してから保存してください: '+timingErrors.join(' / '));return;}
+    const packageErrors=validatePackageContext();if(packageErrors.length){alert('MusicPackageへ保存できません: '+packageErrors.join(' / '));return;}
     const issues=validateChartSyntax().filter(x=>!x.startsWith('MusicPackage')&&!x.startsWith('package_key')&&!x.startsWith('metadata/songdata')&&!x.startsWith('出力難易度'));
     if(issues.length&&!confirm('構文チェックで '+issues.length+' 件の問題があります。 '+issues.slice(0,10).join(' / ')+' 旧フィールドは保存時に削除されます。このまま保存しますか？'))return;
     try {const info=ReInverseChartFormat.difficultyInfo(selectedChartDifficulty),charts=await packageContext.rootHandle.getDirectoryHandle('charts',{create:true}),file=await charts.getFileHandle(info.fileName,{create:true}),writable=await file.createWritable();await writable.write(chartExportJson());await writable.close();filename=info.fileName;el.filenameLabel.textContent=filename;alert('charts/'+info.fileName+' へ保存しました。Unityの再読み込み後、カタログに反映されない場合は Re-Inverse/Rebuild MusicPackages Catalog を実行してください。');}catch(err){if(err&&err.name!=='AbortError')alert('MusicPackageへの保存に失敗しました: '+err.message);}
   }
-  function downloadChart(){if(!chart)return;const info=ReInverseChartFormat.difficultyInfo(selectedChartDifficulty),blob=new Blob([chartExportJson()],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=info?info.fileName:'chart.json';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);alert('JSONをダウンロードしました。対象MusicPackageの charts/ に配置してください。');}
+  function downloadChart(){if(!chart)return;const timingErrors=validateTimingEvents();if(timingErrors.length){alert('タイミングを修正してから保存してください: '+timingErrors.join(' / '));return;}const info=ReInverseChartFormat.difficultyInfo(selectedChartDifficulty),blob=new Blob([chartExportJson()],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=info?info.fileName:'chart.json';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);alert('JSONをダウンロードしました。対象MusicPackageの charts/ に配置してください。');}

@@ -43,8 +43,8 @@
       ctx.lineWidth = 1;
       for(let t=segStart; t<segEnd; t+=beatTicks){
         const y = Math.round(tickToY(t))+0.5;
-        if (y < viewTop) continue;
-        if (y > viewBottom) break;
+        if (isTimelineInverted ? y > viewBottom : y < viewTop) continue;
+        if (isTimelineInverted ? y < viewTop : y > viewBottom) break;
         ctx.beginPath(); ctx.moveTo(RULER_W,y); ctx.lineTo(w,y); ctx.stroke();
       }
       ctx.strokeStyle = getVar('--grid-measure');
@@ -54,8 +54,8 @@
       const firstMeasureTick = ReInverseChartFormat.firstBarTick(segStart, numerator, denominator, resolution, gridOffset);
       for(let t=firstMeasureTick; t<segEnd; t+=measureTicks){
         const y = Math.round(tickToY(t))+0.5;
-        if (y < viewTop) { measureNo++; continue; }
-        if (y > viewBottom) break;
+        if (isTimelineInverted ? y > viewBottom : y < viewTop) { measureNo++; continue; }
+        if (isTimelineInverted ? y < viewTop : y > viewBottom) break;
         ctx.lineWidth = 1.4;
         ctx.beginPath(); ctx.moveTo(RULER_W,y); ctx.lineTo(w,y); ctx.stroke();
         ctx.fillText(String(measureNo), 8, y+3);
@@ -67,10 +67,10 @@
     ctx.lineWidth = 1;
     for(let i=0;i<=laneCount;i++){
       const x = Math.round(laneToX(i))+0.5;
-      ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x, tickToY(maxTick)); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x, contentHeight()); ctx.stroke();
     }
     const rx = Math.round(RULER_W)+0.5;
-    ctx.beginPath(); ctx.moveTo(rx,0); ctx.lineTo(rx, tickToY(maxTick)); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(rx,0); ctx.lineTo(rx, contentHeight()); ctx.stroke();
   }
 
   function drawBpmLines(maxTick, viewTop, viewBottom){
@@ -86,6 +86,21 @@
       ctx.setLineDash([]);
       ctx.fillStyle = getVar('--bpm-line');
       ctx.fillText('♩='+b.bpm, RULER_W+4, y>10? y-4 : y+12);
+    });
+  }
+  function drawScrollLines(viewTop, viewBottom){
+    const w = contentWidth();
+    ctx.font = '10px '+getVar('--mono');
+    (chart.timing.scrolls || []).forEach(event => {
+      if(!Number.isInteger(event.tick) || event.tick < 0) return;
+      const y = tickToY(event.tick);
+      if(y < viewTop || y > viewBottom) return;
+      ctx.strokeStyle = getVar('--scroll-line');
+      ctx.setLineDash([2,4]);
+      ctx.beginPath(); ctx.moveTo(RULER_W,y+0.5); ctx.lineTo(w,y+0.5); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = getVar('--scroll-line');
+      ctx.fillText('Scroll ×'+event.speed, RULER_W+100, y>10 ? y-4 : y+12);
     });
   }
 
@@ -107,10 +122,10 @@
       const y2 = tickToY(n.endTick!=null ? n.endTick : n.tick);
       ctx.fillStyle = n.type==='shift' ? color.replace(')', ', 0.3)').replace('rgb', 'rgba') : getVar('--hold-fill');
       if(n.type==='shift' && color.startsWith('#')) ctx.fillStyle = color + '4D';
-      ctx.fillRect(x+6, y, drawWidth-12, Math.max(2,y2-y));
+      ctx.fillRect(x+6, Math.min(y,y2), drawWidth-12, Math.max(2,Math.abs(y2-y)));
       ctx.strokeStyle = color;
       ctx.lineWidth = isSelected? 3:2;
-      ctx.strokeRect(x+6, y, drawWidth-12, Math.max(2,y2-y));
+      ctx.strokeRect(x+6, Math.min(y,y2), drawWidth-12, Math.max(2,Math.abs(y2-y)));
       ctx.fillStyle = color;
       ctx.fillRect(x+6, y2-3, drawWidth-12, 3);
     }
@@ -190,7 +205,7 @@
     mCtx.clearRect(0, 0, el.minimapCanvas.width, el.minimapCanvas.height);
     mCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     
-    const totalH = tickToY(maxTick);
+    const totalH = contentHeight();
     if (totalH <= 0) return;
     const scaleY = h / totalH;
     const laneW = w / laneCount;
@@ -206,7 +221,9 @@
       let nh = 2;
       if (n.type === 'hold' || n.type === 'shift') {
         const endY = tickToY(n.endTick != null ? n.endTick : n.tick) * scaleY;
-        nh = Math.max(2, endY - ny);
+        nh = Math.max(2, Math.abs(endY - ny));
+        mCtx.fillRect(nx, Math.min(ny,endY), laneW - 1, nh);
+        continue;
       }
       mCtx.fillRect(nx, ny, laneW - 1, nh);
     }
@@ -229,7 +246,7 @@
       const rect = el.minimapWrap.getBoundingClientRect();
       const my = e.clientY - rect.top;
       const maxTick = maxContentTick();
-      const scaleY = el.minimapWrap.clientHeight / tickToY(maxTick);
+      const scaleY = el.minimapWrap.clientHeight / contentHeight();
       const targetScroll = (my / scaleY) - (el.scrollWrap.clientHeight / 2);
       el.scrollWrap.scrollTop = Math.max(0, targetScroll);
       draw();
@@ -244,7 +261,7 @@
     if(!chart) return;
     const w = contentWidth();
     const maxTick = maxContentTick();
-    const h = tickToY(maxTick);
+    const h = contentHeight();
     
     // Viewport Culling logic
     const wrap = el.scrollWrap;
@@ -281,6 +298,7 @@
 
     drawGridLines(maxTick, viewTop, viewBottom);
     drawBpmLines(maxTick, viewTop, viewBottom);
+    drawScrollLines(viewTop, viewBottom);
     // Waveform
     if (waveformData && waveformData.length > 0) {
       const startX = laneToX(laneCount) + 30; // 30px margin
@@ -296,8 +314,8 @@
       
       const topTick = Math.max(0, yToTick(viewTop));
       const bottomTick = Math.max(0, yToTick(viewBottom));
-      const topTime = audioTimeForTick(topTick);
-      const bottomTime = audioTimeForTick(bottomTick);
+      const topTime = audioTimeForTick(Math.min(topTick,bottomTick));
+      const bottomTime = audioTimeForTick(Math.max(topTick,bottomTick));
       
       let startIndex = Math.max(0, Math.floor(topTime / 0.01));
       let endIndex = Math.min(waveformData.length, Math.ceil(bottomTime / 0.01) + 1);
@@ -321,7 +339,7 @@
     const visibleNotes = notes.filter(n => {
        const y = tickToY(n.tick);
        const endY = n.endTick != null ? tickToY(n.endTick) : y + NOTE_H;
-       return (endY >= viewTop && y <= viewBottom);
+       return (Math.max(endY,y) >= viewTop && Math.min(endY,y) <= viewBottom);
     });
     visibleNotes.filter(n=>n.type==='hold' || n.type==='shift').forEach(drawNote);
     visibleNotes.filter(n=>n.type!=='hold' && n.type!=='shift').forEach(drawNote);
@@ -432,7 +450,10 @@
     const x = laneToX(visLane);
     const x0 = x+6, x1 = x+drawWidth-6;
     let y0,y1;
-    if(n.type==='hold' || n.type==='shift'){ y0=tickToY(n.tick)-NOTE_H/2; y1=tickToY(n.endTick!=null?n.endTick:n.tick)+NOTE_H/2; }
+    if(n.type==='hold' || n.type==='shift'){
+      const headY=tickToY(n.tick), tailY=tickToY(n.endTick!=null?n.endTick:n.tick);
+      y0=Math.min(headY,tailY)-NOTE_H/2; y1=Math.max(headY,tailY)+NOTE_H/2;
+    }
     else { y0=tickToY(n.tick)-NOTE_H/2; y1=tickToY(n.tick)+NOTE_H/2; }
     return {x0,x1,y0,y1};
   }

@@ -12,6 +12,7 @@
     --grid-measure: #2A323F;
     --lane-alt: #0E1218;
     --bpm-line: #C9A227;
+    --scroll-line: #35B9C5;
     --tap: #FFFFFF;
     --hold: #00BFFF;
     --hold-fill: rgba(0, 191, 255, 0.3);
@@ -217,3 +218,11 @@
   .modal-help{margin:0 0 12px;color:var(--text-dim);font-size:12px;line-height:1.55;}
   .danger-outline{width:100%;justify-content:center;background:var(--bg);border-color:var(--danger);color:var(--danger);}
   .danger-outline:hover:not(:disabled){background:var(--panel-border);}
+  .timing-modal{width:650px;}
+  .timing-row{display:grid;grid-template-columns:64px 1fr 1fr auto;gap:10px;align-items:end;margin:8px 0;}
+  .timing-row label{display:flex;flex-direction:column;gap:4px;color:var(--text-dim);font-size:11px;}
+  .timing-row input{width:100%;}
+  .timing-kind{font-family:var(--mono);font-size:12px;padding-bottom:8px;}
+  .timing-add{display:flex;gap:8px;margin-top:14px;}
+  .preview-modal{width:565px;}
+  .preview-modal canvas{width:100%;height:auto;border:1px solid var(--panel-border);cursor:default;}

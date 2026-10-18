@@ -24,27 +24,35 @@
   // History (undo/redo)
   // ---------------------------------------------------------------
   function pushHistory(){
-    history.push(JSON.stringify(chart.notes));
+    history.push(JSON.stringify({notes:chart.notes, timing:chart.timing, metadata:chart.metadata}));
     if(history.length>HISTORY_LIMIT) history.shift();
     redoStack = [];
     updateHistoryButtons();
   }
   function undo(){
     if(history.length===0) return;
-    redoStack.push(JSON.stringify(chart.notes));
-    chart.notes = JSON.parse(history.pop());
+    redoStack.push(JSON.stringify({notes:chart.notes, timing:chart.timing, metadata:chart.metadata}));
+    const prior = JSON.parse(history.pop());
+    chart.notes = prior.notes;
+    chart.timing = prior.timing;
+    chart.metadata = prior.metadata;
+    resolution = Number.isInteger(chart.metadata.resolution) && chart.metadata.resolution > 0 ? chart.metadata.resolution : 960;
     clearSelection();
     drag = null;
-    resizeCanvas(); draw(); updateNoteCounts(); updateInspector(); updateFooterCounts();
+    resizeCanvas(); draw(); updateMetaStats(); updateNoteCounts(); updateInspector(); updateFooterCounts();
     updateHistoryButtons();
   }
   function redo(){
     if(redoStack.length===0) return;
-    history.push(JSON.stringify(chart.notes));
-    chart.notes = JSON.parse(redoStack.pop());
+    history.push(JSON.stringify({notes:chart.notes, timing:chart.timing, metadata:chart.metadata}));
+    const next = JSON.parse(redoStack.pop());
+    chart.notes = next.notes;
+    chart.timing = next.timing;
+    chart.metadata = next.metadata;
+    resolution = Number.isInteger(chart.metadata.resolution) && chart.metadata.resolution > 0 ? chart.metadata.resolution : 960;
     clearSelection();
     drag = null;
-    resizeCanvas(); draw(); updateNoteCounts(); updateInspector(); updateFooterCounts();
+    resizeCanvas(); draw(); updateMetaStats(); updateNoteCounts(); updateInspector(); updateFooterCounts();
     updateHistoryButtons();
   }
   function updateHistoryButtons(){

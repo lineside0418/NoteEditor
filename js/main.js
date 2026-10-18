@@ -27,6 +27,7 @@
   });
   el.swapVisualizeToggle.addEventListener('change', (e) => setSwapVisualize(e.target.checked));
   el.centerSpaceToggle.addEventListener('change', (e) => setCenterSpace(e.target.checked));
+  el.timelineInvertToggle.addEventListener('change', (e) => setTimelineInverted(e.target.checked));
   el.settingsClose.addEventListener('click', closeSettingsModal);
   el.settingsModalOverlay.addEventListener('click', (e)=>{ if(e.target===el.settingsModalOverlay) closeSettingsModal(); });
   el.btnSwapSimulator.addEventListener('click', runSwapSimulator);
@@ -35,6 +36,7 @@
   function openSettingsModal(){
     el.swapVisualizeToggle.checked = isSwapVisualizeMode;
     el.centerSpaceToggle.checked = isCenterSpaceMode;
+    el.timelineInvertToggle.checked = isTimelineInverted;
     el.btnSwapSimulator.disabled = !chart;
     el.btnSyntaxCheck.disabled = !chart;
     el.settingsModalOverlay.classList.add('open');
@@ -49,6 +51,17 @@
     if(chart){
       buildLaneHeader();
       resizeCanvas();
+      draw();
+    }
+  }
+  function setTimelineInverted(enabled){
+    if(isTimelineInverted === enabled) return;
+    const anchorY = el.scrollWrap.scrollTop + el.scrollWrap.clientHeight / 2;
+    const anchorTick = chart ? yToTick(anchorY) : 0;
+    isTimelineInverted = enabled;
+    if(chart){
+      resizeCanvas();
+      el.scrollWrap.scrollTop = tickToY(anchorTick) - el.scrollWrap.clientHeight / 2;
       draw();
     }
   }
@@ -175,15 +188,18 @@
 
   function setZoom(z, opts){
     const newZoom = Math.max(MIN_ZOOM, Math.min(MAX_ZOOM, z));
-    if(opts && opts.anchorTick!=null && opts.anchorScreenY!=null){
+    if(chart){
+      const anchorScreenY = opts && opts.anchorScreenY != null ? opts.anchorScreenY : el.scrollWrap.clientHeight / 2;
+      const anchorTick = opts && opts.anchorTick != null ? opts.anchorTick : yToTick(el.scrollWrap.scrollTop + anchorScreenY);
       zoom = newZoom;
       el.zoomLabel.textContent = Math.round(zoom*100)+'%';
-      if(chart){ resizeCanvas(); draw(); el.scrollWrap.scrollTop = tickToY(opts.anchorTick) - opts.anchorScreenY; }
+      resizeCanvas();
+      el.scrollWrap.scrollTop = tickToY(anchorTick) - anchorScreenY;
+      draw();
       return;
     }
     zoom = newZoom;
     el.zoomLabel.textContent = Math.round(zoom*100)+'%';
-    if(chart){ resizeCanvas(); draw(); }
   }
 
   el.scrollWrap.addEventListener('scroll', () => {

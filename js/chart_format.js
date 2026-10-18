@@ -51,9 +51,6 @@
       if(!Array.isArray(normalized[key])) normalized[key] = [];
       normalized[key].sort((a,b) => (a.tick || 0) - (b.tick || 0));
     });
-    if(!normalized.bpms.some(entry => entry && entry.tick === 0)) {
-      normalized.bpms.unshift({ tick: 0, bpm: 120 });
-    }
     return normalized;
   }
 
