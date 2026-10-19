@@ -25,7 +25,15 @@
       return;
     }
 
-    const hit = hitTest(x,y);
+    let hit = hitTest(x,y);
+    if(pointerMode==='place' && hit){
+      const tick=snapTick(yToTick(y));
+      const lane=getInternalLaneForNewNote(xToLane(x),selectedType,tick);
+      if((selectedType==='scramble' && hit.note.type!=='scramble') ||
+         (hit.note.type==='scramble' && selectedType!=='scramble' && !isNoteOccupied(tick,lane,selectedType))){
+        hit=null;
+      }
+    }
 
     if(pointerMode==='select'){
       if(hit){
@@ -132,10 +140,11 @@
       } else if(drag.mode==='group-move'){
         const currentRawLane = xToLane(x);
         const startRawLane = drag.grabRawLane !== undefined ? drag.grabRawLane : currentRawLane; 
-        const deltaLane = currentRawLane - startRawLane;
+        const deltaLane = drag.grabRawLane === 6 ? 0 : currentRawLane - startRawLane;
         const deltaTick = tick - drag.grabStartTick;
 
         const occupiedPositions = new Set();
+        const plannedNotes = [];
         drag.items.forEach((orig,id)=>{
           const n = chart.notes.find(n=>n.id===id);
           if(!n) return;
@@ -147,16 +156,17 @@
           if (n.type === 'scramble') {
             targetLane = 6;
           } else if (n.type === 'swap') {
-            if (![0, 5, 6].includes(targetLane)) {
-              targetLane = [0, 5, 6].reduce((prev, curr) => Math.abs(curr - targetLane) < Math.abs(prev - targetLane) ? curr : prev);
+            if (![0, 5].includes(targetLane)) {
+              targetLane = [0, 5].reduce((prev, curr) => Math.abs(curr - targetLane) < Math.abs(prev - targetLane) ? curr : prev);
             }
           }
           const positionKey = notePositionKey(targetTick, getRuntimeVisualLane({tick:targetTick, lane:targetLane, type:n.type}));
           const targetEndTick = (n.type==='hold' || n.type==='shift') && orig.endTick!=null ? targetTick + (orig.endTick-orig.tick) : n.endTick;
-          if (isValidPlacement(n.type, targetLane) && !doesHoldCrossScramble(n.type, targetTick, targetEndTick) && !isNoteOccupied(targetTick, targetLane, n.type, selectedIds) && !occupiedPositions.has(positionKey)) {
+          if (isValidPlacement(n.type, targetLane) && !doesHoldCrossScramble(n.type, targetTick, targetEndTick) && !isNoteOccupied(targetTick, targetLane, n.type, selectedIds, plannedNotes) && !occupiedPositions.has(positionKey)) {
             n.tick = targetTick;
             n.lane = targetLane;
             occupiedPositions.add(positionKey);
+            plannedNotes.push({tick:targetTick,lane:targetLane,type:n.type});
             if((n.type==='hold' || n.type==='shift') && orig.endTick!=null){
               n.endTick = targetEndTick;
             }
@@ -176,7 +186,7 @@
       const len = Math.max(snapTicks()*MIN_HOLD_LEN_UNITS, drag.currentTick-drag.startTick);
       const endTick = drag.startTick + len;
       if(doesHoldCrossScramble(drag.type, drag.startTick, endTick)){
-        alert('HOLD/SHIFTはSCRAMBLEをまたぐように配置できません。');
+        showAppMessage('HOLD/SHIFTはSCRAMBLEをまたぐように配置できません。');
         drag = null;
         draw();
         return;
@@ -189,7 +199,7 @@
       updateNoteCounts(); updateInspector(); updateFooterCounts();
     } else if(drag.mode==='resize-hold' && doesHoldCrossScramble(drag.note.type, drag.note.tick, drag.note.endTick)){
       drag.note.endTick = drag.originalEndTick;
-      alert('HOLD/SHIFTはSCRAMBLEをまたぐように変更できません。');
+      showAppMessage('HOLD/SHIFTはSCRAMBLEをまたぐように変更できません。');
     } else if(drag.mode==='rect-select'){
       const x0=Math.min(drag.x0,drag.x1), x1=Math.max(drag.x0,drag.x1);
       const y0=Math.min(drag.y0,drag.y1), y1=Math.max(drag.y0,drag.y1);

@@ -7,14 +7,13 @@
   let selectedChartDifficulty = "high";
 
   let isSwapVisualizeMode = false;
-  let isCenterSpaceMode = false;
   let isTimelineInverted = false;
   let laneStateHistory = [];
   const SUPPORTED_NOTE_TYPES = new Set(['tap','hold','trace','swap','shift','scramble']);
 
   let lastMutatorHash = "";
   function createLaneMapping(){
-    return { normal: [0,1,2,3,4,5,6], noSwap: [0,1,2,3,4,5,6] };
+    return { normal: [0,1,2,3,4,5], noSwap: [0,1,2,3,4,5] };
   }
   function cloneLaneMapping(mapping){
     return { normal: [...mapping.normal], noSwap: [...mapping.noSwap] };
@@ -29,7 +28,6 @@
     const triggerVisualLane = mapping.normal.indexOf(logicalLane);
     if(triggerVisualLane === 0) swapVisualPositions(mapping, 1, 2, 'normal');
     else if(triggerVisualLane === 5) swapVisualPositions(mapping, 3, 4, 'normal');
-    else if(triggerVisualLane === 6) swapVisualPositions(mapping, 2, 3, 'normal');
   }
   function applyScrambleMapping(mapping){
     swapVisualPositions(mapping, 0, 5, 'both');
@@ -56,10 +54,14 @@
     
     mutators.sort(compareGameOrder);
     
-    for (const m of mutators) {
-      if (m.type === 'scramble') applyScrambleMapping(current);
-      else applySwapMapping(current, m.lane);
-      laneStateHistory.push({ tick: m.tick, mapping: cloneLaneMapping(current) });
+    for(let i=0;i<mutators.length;){
+      const tick = mutators[i].tick;
+      const atTick = [];
+      while(i<mutators.length && mutators[i].tick===tick) atTick.push(mutators[i++]);
+      if(atTick.some(n=>n.type==='scramble')) applyScrambleMapping(current);
+      else if(atTick.some(n=>n.type==='swap' && n.lane===0) && atTick.some(n=>n.type==='swap' && n.lane===5)) swapVisualPositions(current,2,3,'normal');
+      else atTick.filter(n=>n.type==='swap').forEach(n=>applySwapMapping(current,n.lane));
+      laneStateHistory.push({tick, mapping:cloneLaneMapping(current)});
     }
   }
 
@@ -90,6 +92,7 @@
   function mappingNameForType(type){ return type === 'hold' || type === 'shift' ? 'noSwap' : 'normal'; }
   // Always resolves the game-time physical lane, even when visualization is off.
   function getRuntimeVisualLane(n) {
+    if(n.type === 'scramble') return 6;
     const mapping = laneMappingForNote(n)[mappingNameForType(n.type)];
     const visualLane = mapping.indexOf(n.lane);
     return visualLane >= 0 ? visualLane : n.lane;
@@ -100,14 +103,15 @@
   }
 
   function isValidPlacement(type, lane) {
-    if (lane < 0 || lane >= laneCount) return false;
-    if (type === 'swap' && ![0, 5, 6].includes(lane)) return false;
-    if (lane === 6 && !['swap', 'hold', 'scramble'].includes(type)) return false;
-    if (type === 'scramble' && lane !== 6) return false;
+    if(!Number.isInteger(lane) || lane < 0 || lane > 6) return false;
+    if(type === 'scramble') return lane === 6;
+    if(lane === 6) return false;
+    if(type === 'swap' && lane !== 0 && lane !== 5) return false;
     return true;
   }
 
   function getInternalLaneForNewNote(visualLane, type, targetTick, noteId = Number.MAX_SAFE_INTEGER) {
+    if(type === 'scramble') return 6;
     if (!isSwapVisualizeMode) return visualLane;
     rebuildLaneStates();
     const mapping = getLaneMappingBeforeTick(targetTick)[mappingNameForType(type)];
@@ -147,6 +151,7 @@
   function validateChartSyntax(){
     const errors = [];
     if(!chart || !chart.metadata || !chart.timing) return ['譜面データが不完全です。'];
+    if(chart.version !== 1) errors.push('version は 1 である必要があります。');
     if(chart.metadata.laneCount !== 7) errors.push('laneCount は 7 である必要があります。');
     if(typeof chart.metadata.charter !== 'string' || chart.metadata.charter.trim() === '') errors.push('metadata.charter は空にできません。');
     const difficultyLevel = Number(chart.metadata.difficulty && chart.metadata.difficulty.level);
@@ -168,6 +173,10 @@
     });
     const ids = new Set();
     const positions = new Set();
+    const scrambleTicks = new Set((chart.notes||[]).filter(n=>n.type==='scramble').map(n=>n.tick));
+    const ordinaryCountByTick = new Map();
+    (chart.notes||[]).filter(n=>n.type!=='scramble').forEach(n=>ordinaryCountByTick.set(n.tick,(ordinaryCountByTick.get(n.tick)||0)+1));
+    scrambleTicks.forEach(tick=>{if((ordinaryCountByTick.get(tick)||0)>5) errors.push(`Tick ${tick} のSCRAMBLEには空き入力レーンが必要です。`);});
     rebuildLaneStates();
     (chart.notes||[]).forEach(note => {
       if(!Number.isInteger(note.id) || ids.has(note.id)) errors.push(`ノーツID ${note.id} が重複または不正です。`);
@@ -210,23 +219,49 @@
       }
       if(key === 'bpms' && !seen.has(0)) errors.push('Tick 0のBPMが必要です。');
     }
+    errors.push(...validateScrollEvents(chart.timing.scrolls || []));
     if(!Number.isInteger(chart.metadata.resolution) || chart.metadata.resolution <= 0) errors.push('resolution は正の整数である必要があります。');
     return [...new Set(errors)];
   }
+  function validateScrollEvents(scrolls){
+    const errors = [];
+    const sorted = scrolls.filter(Boolean).slice().sort((a,b)=>a.tick-b.tick);
+    for(let i=0;i<sorted.length;i++){
+      const entry = sorted[i];
+      const hasEnd = Object.prototype.hasOwnProperty.call(entry,'endTick') && entry.endTick !== 0;
+      if(!hasEnd){
+        if(Object.prototype.hasOwnProperty.call(entry,'easing')) errors.push(`Scroll Tick ${entry.tick} の瞬時切替に easing は指定できません。`);
+        continue;
+      }
+      if(!Number.isInteger(entry.endTick) || entry.endTick <= entry.tick) errors.push(`Scroll Tick ${entry.tick} の終了Tickが不正です。`);
+      if(entry.easing != null && !['linear','inQuad','outQuad'].includes(entry.easing)) errors.push(`Scroll Tick ${entry.tick} の easing が不正です。`);
+      if(sorted[i+1] && Number.isInteger(entry.endTick) && sorted[i+1].tick < entry.endTick) errors.push(`Scroll Tick ${entry.tick} のフェードが次のイベントと重複しています。`);
+    }
+    return errors;
+  }
   function showChartSyntaxCheck(){
     if(!chart){
-      alert('譜面を読み込んでから構文チェックを実行してください。');
+      document.getElementById('validationResults').textContent='譜面を読み込んでから構文チェックを実行してください。';
       return;
     }
-    const errors = validateChartSyntax();
-    if(errors.length === 0){
-      alert('構文チェック: 問題は見つかりませんでした。');
-      return;
-    }
-    alert(`構文チェック: ${errors.length} 件の問題があります。\n\n${errors.slice(0, 20).join('\n')}${errors.length > 20 ? `\nほか ${errors.length - 20} 件` : ''}\n\nこの結果は書き出しを妨げません。`);
+    const errors = validateChartSyntax().filter(issue =>
+      !issue.startsWith('MusicPackage') && !issue.startsWith('package_key') &&
+      !issue.startsWith('metadata/songdata') && !issue.startsWith('出力難易度')
+    );
+    const packageErrors = validatePackageContext();
+    const overlapTicks=findScrambleOverlapTicks();
+    const summary=errors.length ? `問題 ${errors.length} 件\n${errors.slice(0,20).join('\n')}${errors.length>20?`\nほか ${errors.length-20} 件`:''}` : '構文上の問題はありません。';
+    document.getElementById('validationResults').textContent=summary+
+      (packageErrors.length ? `\n\n保存先の確認: ${packageErrors.join(' / ')}` : '')+
+      (overlapTicks.length ? `\n\nUnity 互換性警告: Scramble と他ノーツが同 Tick にあります (${overlapTicks.join(', ')}). 現在の Unity はこの譜面を読み込めません。` : '');
+  }
+  function findScrambleOverlapTicks(){
+    if(!chart) return [];
+    const scrambles=new Set((chart.notes||[]).filter(n=>n.type==='scramble').map(n=>n.tick));
+    return [...new Set((chart.notes||[]).filter(n=>n.type!=='scramble' && scrambles.has(n.tick)).map(n=>n.tick))].sort((a,b)=>a-b);
   }
   let filename = 'chart.json';
-  let laneCount = 7;
+  let laneCount = 6;
   let resolution = 960;
   let zoom = 1.0;
   let snapN = 16;
@@ -246,15 +281,14 @@
   let audioBuffer = null;
   let waveformData = null;
   let audioLoadGeneration = 0;
-  let suppressNextScrollDraw = false;
   let audioCtx = new (window.AudioContext || window.webkitAudioContext)();
   let seekBarDragging = false;
-  let previewRafHandle = null;
 
   // 削除されたフィールド (m_subtitle, m_genre, m_previewStart, m_previewDuration) をリストから除外
   const el = {};
   ['fileInput','btnLoad','btnLoad2','btnNew','btnPackage','btnExport','btnDownload','btnMeta','btnAudio','audioInput',
-   'btnUndo','btnRedo','snapSelect','btnSettings','swapVisualizeToggle','centerSpaceToggle','timelineInvertToggle','zoomIn','zoomOut','zoomLabel','filenameLabel','packageDifficulty',
+   'btnUndo','btnRedo','snapSelect','btnSettings','swapVisualizeToggle','timelineInvertToggle','zoomIn','zoomOut','zoomLabel','filenameLabel','packageDifficulty',
+   'btnFileMenu','fileMenu','btnInspectorToggle','inspectorPanel',
    'gridArea','emptyState','laneHeader','scrollWrap','gridCanvas','metaStats','noteCounts','packageLabel',
    'inspector','statTick','statBeat','statLane','statCount','statLength','hintBody','hintTitle',
    'transport','btnPlayPause','playbackRateSelect','timeLabel','seekBar','audioFileLabel','audioEl','btnTiming','btnPreview',

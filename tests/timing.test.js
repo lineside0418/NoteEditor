@@ -82,3 +82,82 @@ test('save validation rejects duplicate and nonpositive timing events', () => {
   assert.ok(errors.some(error => error.includes('重複')));
   assert.ok(errors.some(error => error.includes('0より大きい')));
 });
+
+test('Scroll fades integrate each easing and keep judgment time unchanged', () => {
+  for(const [easing, expected] of [['linear',0.75],['inQuad',2/3],['outQuad',5/6]]){
+    const context = contextFor({metadata:{audio:{offset:0}},timing:{
+      bpms:[{tick:0,bpm:120}],scrolls:[{tick:0,endTick:960,speed:2,easing}]
+    },notes:[]});
+    assert.ok(Math.abs(vm.runInContext('visualTimeAtTick(960)',context)-expected)<1e-12);
+    assert.equal(vm.runInContext('tickToSeconds(960)',context),0.5);
+    assert.equal(vm.runInContext('visualTimeAtTick(-960)',context),-0.5);
+  }
+});
+
+test('BPM change inside a Scroll fade splits visual integration', () => {
+  const context = contextFor({metadata:{audio:{offset:0}},timing:{
+    bpms:[{tick:0,bpm:120},{tick:480,bpm:240}],
+    scrolls:[{tick:0,endTick:960,speed:2,easing:'linear'},{tick:960,speed:0.75}]
+  },notes:[]});
+  assert.equal(vm.runInContext('visualTimeAtTick(960)',context),0.53125);
+  assert.equal(vm.runInContext('visualTimeAtTick(1920)',context),0.71875);
+  assert.equal(vm.runInContext('tickToSeconds(960)',context),0.375);
+});
+
+test('Scroll validation rejects overlaps and malformed fades while preserving step events', () => {
+  const chart = {metadata:{resolution:960},timing:{bpms:[{tick:0,bpm:120}],scrolls:[
+    {tick:0,endTick:960,speed:2,easing:'linear'},
+    {tick:480,speed:1},
+    {tick:1440,endTick:1440,speed:2,easing:'invalid'}
+  ]},notes:[]};
+  const context = contextFor(chart);
+  context.document = {getElementById:()=>({getContext:()=>({})}),querySelectorAll:()=>[]};
+  context.AudioContext = class {};
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/state.js'),'utf8'),context);
+  vm.runInContext(`chart = ${JSON.stringify(chart)}`,context);
+  const errors = vm.runInContext('validateTimingEvents()',context);
+  assert.ok(errors.some(error=>error.includes('重複')));
+  assert.ok(errors.some(error=>error.includes('終了Tick')));
+  assert.ok(errors.some(error=>error.includes('easing')));
+  const exportChart = vm.runInContext('ReInverseChartFormat.createChartExport(chart)',context);
+  assert.deepEqual(Object.keys(exportChart.timing.scrolls[1]).sort(),['speed','tick']);
+});
+
+test('six-lane Swap pair, Scramble, and single Swap use visual positions', () => {
+  const chart = {metadata:{resolution:960},timing:{bpms:[{tick:0,bpm:120}],scrolls:[]},notes:[
+    {id:1,tick:960,lane:0,type:'swap'}, {id:2,tick:960,lane:5,type:'swap'},
+    {id:3,tick:1920,lane:6,type:'scramble'}, {id:4,tick:2880,lane:0,type:'swap'}
+  ]};
+  const context = contextFor(chart);
+  context.document = {getElementById:()=>({getContext:()=>({})}),querySelectorAll:()=>[]};
+  context.AudioContext = class {};
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/state.js'),'utf8'),context);
+  vm.runInContext(`chart = ${JSON.stringify(chart)}; rebuildLaneStates()`,context);
+  assert.deepEqual(Array.from(vm.runInContext('getLaneMappingAfterTick(960).normal',context)),[0,1,3,2,4,5]);
+  assert.deepEqual(Array.from(vm.runInContext('getLaneMappingAfterTick(1920).normal',context)),[5,4,2,3,1,0]);
+  assert.deepEqual(Array.from(vm.runInContext('getLaneMappingAfterTick(2880).normal',context)),[5,4,2,1,3,0]);
+  assert.equal(vm.runInContext("isValidPlacement('swap',6)",context),false);
+  assert.equal(vm.runInContext("isValidPlacement('hold',6)",context),false);
+  assert.equal(vm.runInContext("isValidPlacement('scramble',6)",context),true);
+});
+
+test('Scramble shares a Tick with at most five ordinary input lanes', () => {
+  const chart={metadata:{resolution:960,charter:'QA',difficulty:{level:1},laneCount:7,audio:{offset:0}},
+    timing:{bpms:[{tick:0,bpm:120}],scrolls:[],timeSignatures:[],stops:[]},events:[],
+    notes:Array.from({length:5},(_,lane)=>({id:lane+1,tick:960,lane,type:'tap',size:1}))};
+  const context=contextFor(chart);
+  context.document={getElementById:()=>({getContext:()=>({})}),querySelectorAll:()=>[]};
+  context.AudioContext=class {};
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/state.js'),'utf8'),context);
+  vm.runInContext(fs.readFileSync(path.join(__dirname,'../js/editor.js'),'utf8'),context);
+  vm.runInContext(`chart = ${JSON.stringify(chart)}`,context);
+  assert.equal(vm.runInContext("isNoteOccupied(960,6,'scramble')",context),false);
+  vm.runInContext("chart.notes.push({id:6,tick:960,lane:6,type:'scramble',size:1})",context);
+  assert.equal(vm.runInContext("isNoteOccupied(960,5,'tap')",context),true);
+  assert.equal(vm.runInContext('findScrambleOverlapTicks()[0]',context),960);
+  assert.equal(vm.runInContext("validateChartSyntax().some(e=>e.includes('SCRAMBLEと重複'))",context),false);
+  vm.runInContext("chart.notes.push({id:7,tick:960,lane:5,type:'tap',size:1})",context);
+  assert.equal(vm.runInContext("validateChartSyntax().some(e=>e.includes('空き入力レーン'))",context),true);
+  vm.runInContext('chart.notes.pop(); chart.notes.pop(); chart.notes.splice(0,1)',context);
+  assert.equal(vm.runInContext("isNoteOccupied(960,6,'scramble')",context),false);
+});

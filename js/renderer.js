@@ -100,7 +100,14 @@
       ctx.beginPath(); ctx.moveTo(RULER_W,y+0.5); ctx.lineTo(w,y+0.5); ctx.stroke();
       ctx.setLineDash([]);
       ctx.fillStyle = getVar('--scroll-line');
-      ctx.fillText('Scroll ×'+event.speed, RULER_W+100, y>10 ? y-4 : y+12);
+      ctx.fillText('Scroll ×'+event.speed+(event.endTick > event.tick ? ` → ${event.endTick} ${event.easing || 'linear'}` : ''), RULER_W+100, y>10 ? y-4 : y+12);
+      if(event.endTick > event.tick){
+        const endY = tickToY(event.endTick);
+        if(endY >= viewTop && endY <= viewBottom){
+          ctx.strokeStyle = getVar('--scroll-line');
+          ctx.beginPath(); ctx.moveTo(RULER_W,endY+0.5); ctx.lineTo(w,endY+0.5); ctx.stroke();
+        }
+      }
     });
   }
 
@@ -111,8 +118,8 @@
 
   function drawNote(n){
     const visualLane = getVisualLane(n, n.tick);
-    const x = laneToX(visualLane);
-    const drawWidth = LANE_W;
+    const x = n.type === 'scramble' ? RULER_W : laneToX(visualLane);
+    const drawWidth = n.type === 'scramble' ? laneCount*LANE_W : LANE_W;
     const y = tickToY(n.tick);
     const cx = x + drawWidth/2;
     const isSelected = selectedIds.has(n.id);
@@ -143,14 +150,9 @@
       ctx.closePath();
       ctx.stroke();
     } else if(n.type==='scramble'){
-      ctx.beginPath();
-      ctx.moveTo(cx, Math.round(y)-NOTE_H/2);
-      ctx.lineTo(cx+NOTE_H, Math.round(y)+NOTE_H/2);
-      ctx.lineTo(cx-NOTE_H, Math.round(y)+NOTE_H/2);
-      ctx.closePath();
-      ctx.fillStyle = 'rgba(255, 145, 0, 0.25)';
-      ctx.fill();
-      ctx.stroke();
+      ctx.fillStyle = color + '30';
+      ctx.fillRect(x+6,y-NOTE_H/2,drawWidth-12,NOTE_H);
+      ctx.strokeRect(x+6,y-NOTE_H/2,drawWidth-12,NOTE_H);
     } else if(n.type==='swap'){
       ctx.beginPath();
       ctx.arc(cx, y, NOTE_H/2, 0, Math.PI*2);
@@ -168,8 +170,8 @@
       ctx.strokeStyle = getVar('--text'); // 白あるいはテキスト色
       ctx.lineWidth = 1.4;
       ctx.beginPath();
-      ctx.arc(cx, y, NOTE_H/2+5, 0, Math.PI*2);
-      ctx.stroke();
+      if(n.type === 'scramble') ctx.strokeRect(x+3,y-NOTE_H/2-3,drawWidth-6,NOTE_H+6);
+      else { ctx.arc(cx, y, NOTE_H/2+5, 0, Math.PI*2); ctx.stroke(); }
     }
   }
 
@@ -215,6 +217,10 @@
     for (let i=0; i<notes.length; i++) {
       const n = notes[i];
       const visLane = getVisualLane(n, n.tick);
+      if (n.type === 'scramble'){
+        mCtx.fillRect(0,tickToY(n.tick)*scaleY,w,3);
+        continue;
+      }
       if (visLane < 0 || visLane >= laneCount) continue;
       const nx = visLane * laneW;
       const ny = tickToY(n.tick) * scaleY;
@@ -275,11 +281,7 @@
     ctx.clearRect(0, 0, el.gridCanvas.width, el.gridCanvas.height);
     ctx.setTransform(dpr, 0, 0, dpr, 0, -scrollTop * dpr);
     for(let i=0;i<laneCount;i++){
-      if(i === 6) {
-        // Space lane highlight (Distinct color)
-        ctx.fillStyle = 'rgba(120, 170, 255, 0.08)';
-        ctx.fillRect(laneToX(i), 0, LANE_W, h);
-      } else if(i%2===1){ 
+      if(i%2===1){
         ctx.fillStyle = getVar('--lane-alt'); 
         ctx.fillRect(laneToX(i), 0, LANE_W, h); 
       }
@@ -341,8 +343,19 @@
        const endY = n.endTick != null ? tickToY(n.endTick) : y + NOTE_H;
        return (Math.max(endY,y) >= viewTop && Math.min(endY,y) <= viewBottom);
     });
+    visibleNotes.filter(n=>n.type==='scramble').forEach(drawNote);
     visibleNotes.filter(n=>n.type==='hold' || n.type==='shift').forEach(drawNote);
-    visibleNotes.filter(n=>n.type!=='hold' && n.type!=='shift').forEach(drawNote);
+    visibleNotes.filter(n=>n.type!=='hold' && n.type!=='shift' && n.type!=='scramble').forEach(drawNote);
+    const swapsByTick = new Map();
+    visibleNotes.filter(n=>n.type==='swap').forEach(n=>{
+      if(!swapsByTick.has(n.tick)) swapsByTick.set(n.tick,new Set());
+      swapsByTick.get(n.tick).add(n.lane);
+    });
+    ctx.fillStyle = getVar('--swap');
+    ctx.font = 'bold 14px '+getVar('--mono');
+    swapsByTick.forEach((lanes,tick)=>{
+      if(lanes.has(0) && lanes.has(5)) ctx.fillText('↔',laneToX(3)-7,tickToY(tick)-8);
+    });
 
     if(drag && drag.mode==='create-hold'){
       ctx.globalAlpha = 0.6;
@@ -366,9 +379,9 @@
       ctx.lineWidth = 1;
       ctx.beginPath(); ctx.moveTo(RULER_W, Math.round(y)+0.5); ctx.lineTo(w,Math.round(y)+0.5); ctx.stroke();
       ctx.fillStyle = getVar('--select-box');
-      const hWidth = LANE_W;
-      const hX = laneToX(hoverPos.lane);
-      if(isValidPlacement(selectedType, hoverPos.lane)) {
+      const hWidth = selectedType === 'scramble' ? laneCount*LANE_W : LANE_W;
+      const hX = selectedType === 'scramble' ? RULER_W : laneToX(hoverPos.lane);
+      if(isValidPlacement(selectedType, selectedType === 'scramble' ? 6 : hoverPos.lane)) {
         ctx.fillRect(hX, y-NOTE_H/2-2, hWidth, NOTE_H+4);
       }
     }
@@ -418,8 +431,9 @@
   function hitTest(x,y){
     const hitTick = yToTick(y);
     const notes = chart.notes||[];
-    for(let i=notes.length-1;i>=0;i--){
+    for(let pass=0;pass<2;pass++) for(let i=notes.length-1;i>=0;i--){
       const n = notes[i];
+      if((n.type==='scramble') !== (pass===1)) continue;
       if(n.type==='hold' || n.type==='shift'){
         const y1 = tickToY(n.tick), y2 = tickToY(n.endTick!=null?n.endTick:n.tick);
         const nearHead = Math.abs(y-y1) <= NOTE_H/2+3;
@@ -433,6 +447,7 @@
       } else {
         const ny = tickToY(n.tick);
         if(Math.abs(y-ny) <= NOTE_H/2+3){
+          if(n.type === 'scramble' && x >= RULER_W+6 && x <= laneToX(laneCount)-6) return {note:n, zone:'body'};
           const visLane = getVisualLane(n, n.tick);
           const cx = laneToX(visLane) + LANE_W/2;
           if(Math.abs(x-cx) <= LANE_W/2-4){
@@ -446,8 +461,8 @@
 
   function noteBounds(n){
     const visLane = getVisualLane(n, n.tick);
-    const drawWidth = LANE_W;
-    const x = laneToX(visLane);
+    const drawWidth = n.type === 'scramble' ? laneCount*LANE_W : LANE_W;
+    const x = n.type === 'scramble' ? RULER_W : laneToX(visLane);
     const x0 = x+6, x1 = x+drawWidth-6;
     let y0,y1;
     if(n.type==='hold' || n.type==='shift'){

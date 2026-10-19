@@ -65,15 +65,15 @@
   // ---------------------------------------------------------------
   function nextId(){ let m=0; (chart.notes||[]).forEach(n=>{ if(n.id>m) m=n.id; }); return m+1; }
   function notePositionKey(tick, lane){ return `${tick}:${lane}`; }
-  function isNoteOccupied(tick, lane, type, ignoredIds){
+  function isNoteOccupied(tick, lane, type, ignoredIds, pendingNotes=[]){
     rebuildLaneStates();
     const candidate = {tick, lane, type};
     const candidateVisualLane = getRuntimeVisualLane(candidate);
-    return (chart.notes||[]).some(n =>
-      n.tick === tick &&
-      !(ignoredIds && ignoredIds.has(n.id)) &&
-      getRuntimeVisualLane(n) === candidateVisualLane
-    );
+    const atTick=[...(chart.notes||[]).filter(n=>n.tick===tick && !(ignoredIds && ignoredIds.has(n.id))),
+      ...pendingNotes.filter(n=>n.tick===tick)];
+    if(type==='scramble') return atTick.some(n=>n.type==='scramble') || atTick.filter(n=>n.type!=='scramble').length>=6;
+    if(atTick.some(n=>n.type!=='scramble' && getRuntimeVisualLane(n)===candidateVisualLane)) return true;
+    return atTick.some(n=>n.type==='scramble') && atTick.filter(n=>n.type!=='scramble').length>=5;
   }
 
   // flagsは使わなくなったから削除しておいたよ
@@ -108,6 +108,8 @@
   function getPasteDestinationLane(item, targetAnchorLane, sourceAnchorLane, flipped) {
     const sourceLane = item.visualLane != null ? item.visualLane : item.lane;
     const laneOffset = item.dVisualLane != null ? item.dVisualLane : item.dLane;
+    if(item.type === 'scramble') return 6;
+    if(sourceAnchorLane === 6) return flipped ? 5-sourceLane : sourceLane;
     if (!flipped) {
       return targetAnchorLane + laneOffset;
     }
@@ -124,7 +126,7 @@
       const t = drag.snapTick + item.dTick;
       const rawLane = getPasteDestinationLane(item, drag.lane, drag.sourceAnchorLane, drag.flipped);
       if(t < 0) return;
-      if (!isValidPlacement(item.type, rawLane)) return;
+      if (!isValidPlacement(item.type, item.type === 'scramble' ? 6 : rawLane)) return;
       const newId = nextId();
       const l = getInternalLaneForNewNote(rawLane, item.type, t, newId);
       if (!isValidPlacement(item.type, l)) return;
@@ -149,20 +151,20 @@
     draw();
   }
 
-  function runSwapSimulator() {
+  async function runSwapSimulator() {
     if (!chart || !Array.isArray(chart.notes)) return;
     const crossingHold = findHoldCrossingScramble();
     if(crossingHold){
-      alert(`ID ${crossingHold.id} の${crossingHold.type.toUpperCase()}がSCRAMBLEをまたいでいます。先に譜面を修正してください。`);
+      showAppMessage(`ID ${crossingHold.id} の${crossingHold.type.toUpperCase()}がSCRAMBLEをまたいでいます。先に譜面を修正してください。`);
       return;
     }
     const invalidPlacement = findInvalidNotePlacement();
     if(invalidPlacement){
-      alert(`ID ${invalidPlacement.id} の${invalidPlacement.type.toUpperCase()}は、このレーンへ配置できません。先に譜面を修正してください。`);
+      showAppMessage(`ID ${invalidPlacement.id} の${invalidPlacement.type.toUpperCase()}は、このレーンへ配置できません。先に譜面を修正してください。`);
       return;
     }
     const message = `この譜面を「Swap Visualize ONの見た目で作成された譜面」として、ゲームで同じ見た目になる内部レーンへ変換します。\n\nこの操作はUndoで元に戻せます。実行しますか？`;
-    if (!confirm(message)) return;
+    if (!await showAppConfirm(message,'Swap Simulator','変換する')) return;
 
     const nextLanes = new Map();
     let mapping = createLaneMapping();
@@ -185,20 +187,19 @@
 
       for(const gimmick of gimmicks){
         if(gimmick.type === 'scramble' && gimmick.lane !== 6){
-          alert(`ID ${gimmick.id} のSCRAMBLEは7レーンに配置してください。変換を中止しました。`);
+          showAppMessage(`ID ${gimmick.id} のSCRAMBLEは7レーンに配置してください。変換を中止しました。`);
           return;
         }
-        nextLanes.set(gimmick.id, mapping.normal[gimmick.lane]);
+        nextLanes.set(gimmick.id, gimmick.type === 'scramble' ? 6 : mapping.normal[gimmick.lane]);
       }
 
       const outputGimmicks = gimmicks.slice().sort((a,b) => {
         const laneDiff = nextLanes.get(a.id) - nextLanes.get(b.id);
         return laneDiff || a.id - b.id;
       });
-      outputGimmicks.forEach(gimmick => {
-        if(gimmick.type === 'scramble') applyScrambleMapping(mapping);
-        else applySwapMapping(mapping, nextLanes.get(gimmick.id));
-      });
+      if(outputGimmicks.some(g=>g.type === 'scramble')) applyScrambleMapping(mapping);
+      else if(outputGimmicks.some(g=>g.type === 'swap' && nextLanes.get(g.id)===0) && outputGimmicks.some(g=>g.type === 'swap' && nextLanes.get(g.id)===5)) swapVisualPositions(mapping,2,3,'normal');
+      else outputGimmicks.forEach(gimmick => applySwapMapping(mapping, nextLanes.get(gimmick.id)));
 
     }
 
@@ -218,7 +219,7 @@
     updateInspector();
     resizeCanvas();
     draw();
-    alert(`${changed} 件のノーツを変換しました。`);
+    showAppToast(`${changed} 件のノーツを変換しました`);
   }
 
   function mirrorSelected() {

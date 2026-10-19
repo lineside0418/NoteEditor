@@ -71,7 +71,7 @@
         loadChart(JSON.parse(text), file.name);
       }
     } catch(err) {
-      if (err.name !== 'AbortError') alert('ファイルの読み込みに失敗しました: ' + err.message);
+      if (err.name !== 'AbortError') showAppMessage('ファイルの読み込みに失敗しました: ' + err.message);
     }
   }
 
@@ -80,13 +80,13 @@
     if(!file) return;
     if(file.name.toLowerCase().endsWith('.mcz')){
       el.fileInput.value = '';
-      loadMczChartFile(file).catch(err => alert('MCZファイルの読み込みに失敗しました: ' + err.message));
+      loadMczChartFile(file).catch(err => showAppMessage('MCZファイルの読み込みに失敗しました: ' + err.message));
       return;
     }
     const reader = new FileReader();
     reader.onload = ()=>{
       try{ loadChart(JSON.parse(reader.result), file.name); }
-      catch(err){ alert('JSONの読み込みに失敗しました: '+err.message); }
+      catch(err){ showAppMessage('JSONの読み込みに失敗しました: '+err.message); }
     };
     reader.readAsText(file);
     el.fileInput.value = '';
@@ -233,25 +233,23 @@
 
   
   async function loadChart(data, name){
-    if(!data || typeof data !== 'object'){ alert('不正なJSONです'); return; }
+    if(!data || typeof data !== 'object'){ showAppMessage('不正なJSONです'); return; }
     if(!Array.isArray(data.notes)) data.notes = [];
     if(!data.metadata) data.metadata = {};
     if(!data.timing) data.timing = {};
     normalizeChartTiming(data.timing);
     if(!Array.isArray(data.events)) data.events = [];
-    if(!Number.isInteger(data.version)) data.version = 1;
     const rawResolution = data.metadata.resolution;
     const normalizedMetadata = ReInverseChartFormat.normalizeMetadata(data.metadata);
     data.metadata.charter = normalizedMetadata.charter;
     data.metadata.audio = normalizedMetadata.audio;
     data.metadata.difficulty = Object.assign({}, data.metadata.difficulty || {}, normalizedMetadata.difficulty);
     data.metadata.grid_offset = normalizedMetadata.grid_offset;
-    data.metadata.laneCount = 7;
     data.metadata.resolution = rawResolution;
 
     chart = data;
     filename = name || 'chart.json';
-    laneCount = 7;
+    laneCount = 6;
     resolution = Number.isInteger(rawResolution) && rawResolution > 0 ? rawResolution : 960;
 
     if (audioObjectUrl) {
@@ -303,27 +301,25 @@
     updateNoteCounts();
     updateInspector();
     updateFooterCounts();
+    const invalidNote = findInvalidNotePlacement();
+    if(invalidNote) showAppMessage(`ID ${invalidNote.id} / Tick ${invalidNote.tick} の${invalidNote.type}は現行の6入力レーン仕様では配置できません。自動変換せず保持しています。修正してから保存してください。`);
   }
 
   function buildLaneHeader(){
     el.laneHeader.innerHTML = '';
+    el.laneHeader.style.width = contentWidth()+'px';
     const rulerCell = document.createElement('div');
     rulerCell.className = 'ruler-cell';
     rulerCell.style.width = RULER_W+'px';
     el.laneHeader.appendChild(rulerCell);
     
-    const visualOrder = [];
-    if (isCenterSpaceMode) {
-      visualOrder.push(0, 1, 2, 6, 3, 4, 5);
-    } else {
-      for(let i=0;i<laneCount;i++) visualOrder.push(i);
-    }
+    const visualOrder = [0,1,2,3,4,5];
     
     visualOrder.forEach(i => {
       const c = document.createElement('div');
       c.className = 'lane-cell';
       c.style.width = LANE_W+'px';
-      c.textContent = i === 6 ? 'SPACE' : ('LANE '+(i+1));
+      c.textContent = 'LANE '+(i+1);
       el.laneHeader.appendChild(c);
     });
   }
@@ -347,9 +343,9 @@
     el.m_timeSigNumerator.value = timeSignature0.numerator;
     el.m_timeSigDenominator.value = timeSignature0.denominator;
     el.m_resolution.value = m.resolution||960;
-    el.metaModalOverlay.classList.add('open');
+    openAppModal(el.metaModalOverlay);
   }
-  function closeMetaModal(){ el.metaModalOverlay.classList.remove('open'); }
+  function closeMetaModal(){ closeAppModal(el.metaModalOverlay); }
   el.metaCancel.addEventListener('click', closeMetaModal);
   el.metaModalOverlay.addEventListener('click', (e)=>{ if(e.target===el.metaModalOverlay) closeMetaModal(); });
 
@@ -362,11 +358,11 @@
     const gridOffsetInput = el.m_gridOffset.value.trim();
     const gridOffset = gridOffsetInput === '' ? 0 : Number(gridOffsetInput);
     if(!Number.isInteger(newResolution) || newResolution<1 || !Number.isFinite(bpm) || bpm<=0 || !Number.isInteger(numerator) || numerator<1 || !Number.isInteger(denominator) || denominator<1 || !Number.isFinite(difficultyLevel) || difficultyLevel<0){
-      alert('resolution、BPM、拍子には正の数を入力してください。');
+      showAppMessage('resolution、BPM、拍子には正の数を入力してください。');
       return;
     }
     if(!Number.isInteger(gridOffset)){
-      alert('小節線オフセットは整数で入力してください。空欄は 0 として保存します。');
+      showAppMessage('小節線オフセットは整数で入力してください。空欄は 0 として保存します。');
       return;
     }
 
@@ -378,7 +374,6 @@
     delete chart.metadata.id; delete chart.metadata.title; delete chart.metadata.artist;
     if(chart.metadata.difficulty) delete chart.metadata.difficulty.name;
     delete chart.metadata.jacket;
-    chart.metadata.laneCount = 7;
     chart.metadata.resolution = newResolution;
 
     const bpmIndex = chart.timing.bpms.findIndex(b=>b.tick===0);
@@ -388,7 +383,7 @@
     if(timeSignatureIndex >= 0) Object.assign(chart.timing.timeSignatures[timeSignatureIndex], {numerator, denominator});
     else chart.timing.timeSignatures.push({tick:0,numerator,denominator});
 
-    laneCount = 7;
+    laneCount = 6;
     resolution = newResolution;
 
     buildLaneHeader();
@@ -490,8 +485,8 @@
   audio.addEventListener('seeked', syncAudioContext);
   audio.addEventListener('ratechange', syncAudioContext);
 
-  audio.addEventListener('pause', ()=>{ el.btnPlayPause.innerHTML='<span class="material-symbols-outlined">play_arrow</span>'; stopRaf(); draw(); });
-  audio.addEventListener('ended', ()=>{ el.btnPlayPause.innerHTML='<span class="material-symbols-outlined">play_arrow</span>'; stopRaf(); draw(); });
+  audio.addEventListener('pause', ()=>{ el.btnPlayPause.innerHTML='<span class="material-symbols-outlined">play_arrow</span>'; stopRaf(); currentAudioTime=audio.currentTime||0; draw(); drawScrollPreview(currentAudioTime); });
+  audio.addEventListener('ended', ()=>{ el.btnPlayPause.innerHTML='<span class="material-symbols-outlined">play_arrow</span>'; stopRaf(); currentAudioTime=audio.currentTime||0; draw(); drawScrollPreview(currentAudioTime); });
 
   el.btnPlayPause.addEventListener('click', togglePlay);
   function togglePlay(){
@@ -517,6 +512,7 @@
     if(nextHitSoundIndex < 0) nextHitSoundIndex = (chart && chart.notes || []).length;
     updateTimeLabel();
     draw();
+    drawScrollPreview(currentAudioTime);
   });
   el.seekBar.addEventListener('change', ()=>{ seekBarDragging = false; });
 
@@ -540,27 +536,36 @@
     syncAudioContext();
     updateTimeLabel();
     draw();
+    drawScrollPreview(currentAudioTime);
+  }
+
+  function playbackFrameTime(){
+    if(audio.paused) return audio.currentTime||0;
+    const predicted=(audioCtx.currentTime-audioContextOffset)*(audio.playbackRate||1);
+    const reported=audio.currentTime||0;
+    if(!Number.isFinite(predicted) || Math.abs(predicted-reported)>0.12){
+      syncAudioContext();
+      return reported;
+    }
+    return predicted;
   }
 
   function startRaf(){
     stopRaf();
     function loop(){
       if(chart){
-        let preciseTime = audio.currentTime || 0;
-        if (!audio.paused) {
-          preciseTime = (audioCtx.currentTime - audioContextOffset) * (audio.playbackRate || 1);
-        }
+        const preciseTime=playbackFrameTime();
         currentAudioTime = preciseTime;
-        draw();
         const curTick = tickForAudioTime(preciseTime);
         const py = tickToY(curTick);
-        scheduleHitSounds(preciseTime);
         const wantTop = py - el.scrollWrap.clientHeight*(isTimelineInverted ? 0.7 : 0.3);
         const targetScrollTop = Math.max(0, wantTop);
         if(Math.abs(el.scrollWrap.scrollTop - targetScrollTop) > 0.5){
-          suppressNextScrollDraw = true;
           el.scrollWrap.scrollTop = targetScrollTop;
         }
+        draw();
+        drawScrollPreview(preciseTime);
+        scheduleHitSounds(preciseTime);
       }
       rafHandle = requestAnimationFrame(loop);
     }
@@ -572,6 +577,13 @@
   // Export
   // ---------------------------------------------------------------
   function chartExportJson(){ normalizeChartTiming(chart.timing); return JSON.stringify(ReInverseChartFormat.createChartExport(chart), null, 2); }
+  function exportIssues(){
+    return validateChartSyntax().filter(issue =>
+      !issue.startsWith('MusicPackage') && !issue.startsWith('package_key') &&
+      !issue.startsWith('metadata/songdata') && !issue.startsWith('出力難易度') &&
+      !issue.includes('旧フィールド')
+    );
+  }
 
   function updatePackageUi(){
     const info=ReInverseChartFormat.difficultyInfo(selectedChartDifficulty), suffix=info?' / charts/'+info.fileName:'';
@@ -580,14 +592,28 @@
     if(chart){ el.btnExport.disabled=!packageContext; updateMetaStats(); }
   }
   async function selectMusicPackage(){
-    if(!window.showDirectoryPicker){ alert('MusicPackageへの直接保存は File System Access API 対応ブラウザで実行してください。'); return; }
-    try { const rootHandle=await window.showDirectoryPicker({mode:'readwrite'}); const metadataHandle=await rootHandle.getDirectoryHandle('metadata'); const songdataHandle=await metadataHandle.getFileHandle('songdata.json'); packageContext={rootHandle,packageKey:rootHandle.name,songdata:JSON.parse(await (await songdataHandle.getFile()).text())}; updatePackageUi(); const errors=validatePackageContext(); if(errors.length)alert('MusicPackageの検証結果: '+errors.join(' / ')); } catch(err) { if(err&&err.name!=='AbortError')alert('MusicPackageの選択に失敗しました: '+err.message); }
+    if(!window.showDirectoryPicker){ showAppMessage('MusicPackageへの直接保存は File System Access API 対応ブラウザで実行してください。'); return; }
+    try { const rootHandle=await window.showDirectoryPicker({mode:'readwrite'}); const metadataHandle=await rootHandle.getDirectoryHandle('metadata'); const songdataHandle=await metadataHandle.getFileHandle('songdata.json'); packageContext={rootHandle,packageKey:rootHandle.name,songdata:JSON.parse(await (await songdataHandle.getFile()).text())}; updatePackageUi(); const errors=validatePackageContext(); if(errors.length)showAppMessage('MusicPackageの検証結果: '+errors.join(' / ')); } catch(err) { if(err&&err.name!=='AbortError')showAppMessage('MusicPackageの選択に失敗しました: '+err.message); }
   }
   async function exportChart(){
-    if(!chart)return;const timingErrors=validateTimingEvents();if(timingErrors.length){alert('タイミングを修正してから保存してください: '+timingErrors.join(' / '));return;}
-    const packageErrors=validatePackageContext();if(packageErrors.length){alert('MusicPackageへ保存できません: '+packageErrors.join(' / '));return;}
-    const issues=validateChartSyntax().filter(x=>!x.startsWith('MusicPackage')&&!x.startsWith('package_key')&&!x.startsWith('metadata/songdata')&&!x.startsWith('出力難易度'));
-    if(issues.length&&!confirm('構文チェックで '+issues.length+' 件の問題があります。 '+issues.slice(0,10).join(' / ')+' 旧フィールドは保存時に削除されます。このまま保存しますか？'))return;
-    try {const info=ReInverseChartFormat.difficultyInfo(selectedChartDifficulty),charts=await packageContext.rootHandle.getDirectoryHandle('charts',{create:true}),file=await charts.getFileHandle(info.fileName,{create:true}),writable=await file.createWritable();await writable.write(chartExportJson());await writable.close();filename=info.fileName;el.filenameLabel.textContent=filename;alert('charts/'+info.fileName+' へ保存しました。Unityの再読み込み後、カタログに反映されない場合は Re-Inverse/Rebuild MusicPackages Catalog を実行してください。');}catch(err){if(err&&err.name!=='AbortError')alert('MusicPackageへの保存に失敗しました: '+err.message);}
+    if(!chart)return;const timingErrors=validateTimingEvents();if(timingErrors.length){showAppMessage('タイミングを修正してから保存してください: '+timingErrors.join(' / '));return;}
+    const packageErrors=validatePackageContext();if(packageErrors.length){showAppMessage('MusicPackageへ保存できません: '+packageErrors.join(' / '));return;}
+    const issues=exportIssues();
+    if(issues.length){showAppMessage('譜面を修正してから保存してください: '+issues.slice(0,10).join(' / '));return;}
+    if(!await confirmScrambleCompatibility()) return;
+    try {const info=ReInverseChartFormat.difficultyInfo(selectedChartDifficulty),charts=await packageContext.rootHandle.getDirectoryHandle('charts',{create:true}),file=await charts.getFileHandle(info.fileName,{create:true}),writable=await file.createWritable();await writable.write(chartExportJson());await writable.close();filename=info.fileName;el.filenameLabel.textContent=filename;showAppToast('charts/'+info.fileName+' へ保存しました。');}catch(err){if(err&&err.name!=='AbortError')showAppMessage('MusicPackageへの保存に失敗しました: '+err.message);}
   }
-  function downloadChart(){if(!chart)return;const timingErrors=validateTimingEvents();if(timingErrors.length){alert('タイミングを修正してから保存してください: '+timingErrors.join(' / '));return;}const info=ReInverseChartFormat.difficultyInfo(selectedChartDifficulty),blob=new Blob([chartExportJson()],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=info?info.fileName:'chart.json';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);alert('JSONをダウンロードしました。対象MusicPackageの charts/ に配置してください。');}
+  function confirmScrambleCompatibility(){
+    const ticks=findScrambleOverlapTicks();
+    if(!ticks.length) return Promise.resolve(true);
+    return showAppConfirm(`Scramble と通常ノーツが同 Tick (${ticks.join(', ')}) にあります。現在の Unity はこの譜面を読み込めません。互換性未対応のまま保存しますか？`,'Unity 互換性警告','保存する');
+  }
+  async function downloadChart(){
+    if(!chart)return;
+    const issues=exportIssues();
+    if(issues.length){showAppMessage('譜面を修正してから保存してください: '+issues.slice(0,10).join(' / '));return;}
+    if(!await confirmScrambleCompatibility()) return;
+    const info=ReInverseChartFormat.difficultyInfo(selectedChartDifficulty),blob=new Blob([chartExportJson()],{type:'application/json'}),url=URL.createObjectURL(blob),a=document.createElement('a');
+    a.href=url;a.download=info?info.fileName:'chart.json';document.body.appendChild(a);a.click();document.body.removeChild(a);URL.revokeObjectURL(url);
+    showAppToast('JSONをダウンロードしました。');
+  }

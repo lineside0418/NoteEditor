@@ -5,23 +5,12 @@
   function tickToY(tick){ return (isTimelineInverted ? verticalExtentTick - tick : tick) * pxPerTick(); }
   function yToTick(y){ return isTimelineInverted ? verticalExtentTick - y / pxPerTick() : y / pxPerTick(); }
   function laneToX(lane){
-    if (lane === laneCount) return RULER_W + laneCount * LANE_W;
-    if (isCenterSpaceMode) {
-      if (lane < 3) return RULER_W + lane*LANE_W;
-      if (lane === 6) return RULER_W + 3*LANE_W;
-      return RULER_W + (lane + 1)*LANE_W;
-    }
     return RULER_W + lane*LANE_W;
   }
   function xToLane(x){
     let raw = Math.floor((x - RULER_W) / LANE_W);
     if(raw < 0) raw = 0;
     if(raw >= laneCount) raw = laneCount - 1;
-    if (isCenterSpaceMode) {
-      if (raw < 3) return raw;
-      if (raw === 3) return 6;
-      return raw - 1;
-    }
     return Math.max(0, Math.min(laneCount-1, raw));
   }
   function snapTicks(){ return resolution*4/snapN; }
@@ -42,7 +31,7 @@
     // 既存のノーツやタイミングイベントから最大Tickを取得
     (chart.notes||[]).forEach(n=>{ m = Math.max(m, n.tick||0, n.endTick||0); });
     (chart.timing.bpms||[]).forEach(b=>m=Math.max(m,b.tick||0));
-    (chart.timing.scrolls||[]).forEach(s=>m=Math.max(m,s.tick||0));
+    (chart.timing.scrolls||[]).forEach(s=>m=Math.max(m,s.tick||0,s.endTick||0));
     (chart.timing.timeSignatures||[]).forEach(t=>m=Math.max(m,t.tick||0));
 
     // 音声が読み込まれている場合は、曲の総尺そのものから最大Tickを算出してキャンバスを伸ばす
@@ -75,7 +64,6 @@
       el.scrollWrap.appendChild(dummy);
       el.gridCanvas.style.position = 'sticky';
       el.gridCanvas.style.top = '0';
-      el.gridCanvas.style.left = '0';
       el.gridCanvas.style.zIndex = '1';
     }
     
@@ -141,21 +129,64 @@
   function audioTimeForTick(tick){ return tickToSeconds(tick) + audioOffsetSec(); }
   function tickForAudioTime(sec){ return secondsToTick(sec - audioOffsetSec()); }
 
-  // The integral is measured in chart seconds. BPM changes affect the event
-  // times, while Scroll changes only the distance travelled in the preview.
-  function visualTimeAtTick(tick){
-    const targetSec = tickToSeconds(tick);
-    const events = (chart.timing.scrolls || []).filter(e => Number.isInteger(e.tick) && e.tick >= 0 && Number.isFinite(e.speed) && e.speed > 0)
+  // Integrate a Tick-based Scroll curve in chart seconds. Every BPM, Scroll
+  // start, and fade end becomes a segment boundary.
+  function scrollEaseIntegral(u, easing){
+    if(easing === 'inQuad') return u*u*u/3;
+    if(easing === 'outQuad') return u*u - u*u*u/3;
+    return u*u/2;
+  }
+  let visualProfileKey = null, visualProfile = null;
+  function getVisualProfile(){
+    const key = JSON.stringify([resolution, chart.timing.bpms, chart.timing.scrolls]);
+    if(key === visualProfileKey) return visualProfile;
+    const bpms = sortedBpms();
+    const scrolls = (chart.timing.scrolls || []).filter(e => e && Number.isInteger(e.tick) && e.tick >= 0 && Number.isFinite(e.speed) && e.speed > 0)
       .slice().sort((a,b)=>a.tick-b.tick);
-    let previousSec = 0, speed = 1, visual = 0;
-    for(const event of events){
-      const eventSec = tickToSeconds(event.tick);
-      if(eventSec > targetSec) break;
-      visual += (eventSec - previousSec) * speed;
-      previousSec = eventSec;
-      speed = event.speed;
+    const points = new Set([0]);
+    bpms.forEach(e=>points.add(e.tick));
+    scrolls.forEach(e=>{ points.add(e.tick); if(Number.isInteger(e.endTick) && e.endTick > e.tick) points.add(e.endTick); });
+    const boundaries = [...points].sort((a,b)=>a-b);
+    const segments = [];
+    let bpm = bpms[0].bpm, bpmIndex = 1, speed = 1, scrollIndex = 0, activeFade = null, visual = 0;
+    for(let i=0;i<boundaries.length;i++){
+      const start = boundaries[i], end = boundaries[i+1];
+      while(bpmIndex < bpms.length && bpms[bpmIndex].tick <= start) bpm = bpms[bpmIndex++].bpm;
+      if(activeFade && activeFade.endTick <= start){ speed = activeFade.speed; activeFade = null; }
+      while(scrollIndex < scrolls.length && scrolls[scrollIndex].tick <= start){
+        const event = scrolls[scrollIndex++];
+        if(Number.isInteger(event.endTick) && event.endTick > event.tick){
+          activeFade = {...event, startSpeed:speed};
+        } else { speed = event.speed; activeFade = null; }
+      }
+      const segment = {start, end:end == null ? Infinity : end, bpm, speed, fade:activeFade, visual};
+      segments.push(segment);
+      if(end != null) visual += visualSegmentAmount(segment, end);
     }
-    return visual + (targetSec - previousSec) * speed;
+    visualProfileKey = key;
+    visualProfile = {segments, preSpeed:scrolls[0] && scrolls[0].tick === 0 && !(scrolls[0].endTick > 0) ? scrolls[0].speed : 1};
+    return visualProfile;
+  }
+  function visualSegmentAmount(segment, tick){
+    const delta = tick - segment.start;
+    const secondsPerTick = 60/(segment.bpm*resolution);
+    if(!segment.fade) return delta*segment.speed*secondsPerTick;
+    const fade = segment.fade, length = fade.endTick - fade.tick;
+    const u0 = (segment.start-fade.tick)/length, u1 = (tick-fade.tick)/length;
+    const easedArea = length*(scrollEaseIntegral(u1,fade.easing)-scrollEaseIntegral(u0,fade.easing));
+    return (delta*fade.startSpeed + (fade.speed-fade.startSpeed)*easedArea)*secondsPerTick;
+  }
+  function visualTimeAtTick(tick, profile = getVisualProfile()){
+    if(tick < 0) return tickToSeconds(tick)*profile.preSpeed;
+    const segments = profile.segments;
+    let low = 0, high = segments.length-1;
+    while(low <= high){
+      const mid = (low+high)>>1, segment = segments[mid];
+      if(tick < segment.start) high = mid-1;
+      else if(tick >= segment.end) low = mid+1;
+      else return segment.visual + visualSegmentAmount(segment,tick);
+    }
+    return 0;
   }
 
   // ---------------------------------------------------------------

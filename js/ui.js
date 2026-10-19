@@ -18,7 +18,7 @@
       <div class="stat-row"><span class="k">タイトル</span><span class="v">${escapeHtml(packageMusic.title||'-')}</span></div>
       <div class="stat-row"><span class="k">アーティスト</span><span class="v">${escapeHtml(packageMusic.artist||'-')}</span></div>
       <div class="stat-row"><span class="k">難易度</span><span class="v">${escapeHtml((ReInverseChartFormat.difficultyInfo(selectedChartDifficulty)||{}).label||'-')} ${m.difficulty?m.difficulty.level:''}</span></div>
-      <div class="stat-row"><span class="k">レーン数</span><span class="v">${laneCount}</span></div>
+      <div class="stat-row"><span class="k">入力レーン</span><span class="v">6（保存形式: 7）</span></div>
       <div class="stat-row"><span class="k">解像度</span><span class="v">${resolution}</span></div>
       <div class="stat-row"><span class="k">BPM</span><span class="v">${escapeHtml(bpmRange)}</span></div>
       <div class="stat-row"><span class="k">音声オフセット</span><span class="v">${(m.audio&&m.audio.offset)!=null ? m.audio.offset+' ms' : '0 ms'}</span></div>
@@ -32,7 +32,7 @@
     notes.forEach(n=>{ if(counts[n.type]!=null) counts[n.type]++; });
     el.noteCounts.innerHTML = Object.keys(TYPE_META).map(t=>`
       <div class="count-item"><span class="sw" style="background:${TYPE_META[t].color}"></span>${TYPE_META[t].label}<span class="n">${counts[t]}</span></div>
-    `).join('');
+    `).join('') + `<div class="count-item">総採点単位<span class="n">${notes.reduce((sum,n)=>sum+(n.type==='scramble'?6:1),0)}</span></div>`;
   }
 
   function updateFooterCounts(){
